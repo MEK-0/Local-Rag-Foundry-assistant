@@ -1,0 +1,22 @@
+# Core
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-dotenv==1.0.1
+pydantic==2.9.2
+
+# Foundry Local (on-device inference)
+foundry-local-sdk==0.3.0
+
+# Local RAG plumbing
+numpy==1.26.4
+
+# Azure — cloud mode (optional, only needed if MODE=cloud)
+azure-search-documents==11.5.1
+azure-storage-blob==12.23.0
+openai==1.51.0                 # used for both Foundry Local (OpenAI-compatible) and Azure OpenAI
+azure-identity==1.17.1
+opencensus-ext-azure==1.1.13   # Application Insights logging
+
+# Dev / test
+pytest==8.3.3
+httpx==0.27.2

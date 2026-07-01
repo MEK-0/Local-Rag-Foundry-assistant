@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from src.rag_pipeline import process_chat_query
 import uvicorn
 
 # Bir önceki adımda oluşturduğumuz config dosyasından ayarları çekiyoruz
@@ -27,8 +28,11 @@ async def health_check():
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     """Kullanıcıdan gelen soruları RAG boru hattına (pipeline) iletecek ana uç nokta."""
-    # Şimdilik sadece yankı (echo) yapıyor. İleride RAG mantığı buraya eklenecek.
-    return {"reply": f"[{settings.mode.upper()} MODE] Sistem mesajınızı aldı: {request.message}"}
+    try:
+        reply = process_chat_query(request.message)
+        return {"reply": reply}
+    except Exception as e:
+        return {"reply": f"An error occurred: {str(e)}"}
 
 @app.post("/ingest")
 async def ingest_endpoint():

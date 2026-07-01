@@ -35,6 +35,22 @@ def get_embedding(text: str) -> List[float]:
 
 def generate_chat_response(prompt: str) -> str:
     """
-    Placeholder for the generation step.
+    Sends the augmented prompt to the selected LLM and returns the response.
     """
-    pass
+    if settings.mode == "local":
+        model_name = settings.foundry_chat_model
+    else:
+        model_name = settings.azure_openai_deployment
+        
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+            {"role": "user", "content": f"You are an intelligent offline AI assistant.\n\n{prompt}"}
+            ],
+            temperature=0.3,
+            max_tokens=500
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error during generation: {str(e)}"

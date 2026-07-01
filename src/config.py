@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 40
 
     # --- Local Models ---
-    foundry_chat_model: str = "phi-3.5-mini"
+    foundry_chat_model: str = "qwen3-0.6b-generic-gpu:2"
     foundry_embedding_model: str = "qwen3-0.6b"
 
     # --- Cloud Variables (Bulut modunda doldurulacak) ---

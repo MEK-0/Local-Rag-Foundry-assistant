@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local RAG Assistant</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', system-ui, sans-serif; 
+            max-width: 800px; 
+            margin: 40px auto; 
+            padding: 20px; 
+            background: #f3f2f1; 
+            color: #323130;
+        }
+        h2 { text-align: center; color: #0078D4; }
+        #chat-box { 
+            height: 500px; 
+            background: white; 
+            border: 1px solid #e1dfdd; 
+            border-radius: 8px; 
+            padding: 20px; 
+            overflow-y: auto; 
+            margin-bottom: 20px; 
+            display: flex;
+            flex-direction: column;
+        }
+        .message { 
+            margin-bottom: 12px; 
+            padding: 12px 16px; 
+            border-radius: 8px; 
+            max-width: 75%; 
+            line-height: 1.4;
+        }
+        .user-msg { 
+            background: #0078D4; 
+            color: white; 
+            align-self: flex-end; 
+            border-bottom-right-radius: 2px;
+        }
+        .bot-msg { 
+            background: #f3f2f1; 
+            color: #323130; 
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+            border: 1px solid #e1dfdd;
+        }
+        .input-group { display: flex; gap: 10px; }
+        input[type="text"] { 
+            flex: 1; 
+            padding: 14px; 
+            border: 1px solid #8a8886; 
+            border-radius: 6px; 
+            font-size: 16px;
+        }
+        button { 
+            padding: 14px 24px; 
+            background: #0078D4; 
+            color: white; 
+            border: none; 
+            border-radius: 6px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            font-weight: 600;
+        }
+        button:hover { background: #106ebe; }
+    </style>
+</head>
+<body>
+
+    <h2>Local RAG Assistant</h2>
+    <div id="chat-box">
+        <div class="message bot-msg">Hello! I am your Local RAG Assistant. How can I help you today?</div>
+    </div>
+    
+    <div class="input-group">
+        <input type="text" id="user-input" placeholder="Type your message here..." onkeypress="handleKeyPress(event)">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+    <script>
+        async function sendMessage() {
+            const input = document.getElementById('user-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            // Append user message to the UI
+            appendMessage('user-msg', message);
+            input.value = '';
+
+            try {
+                // Send request to FastAPI /chat endpoint
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+                
+                const data = await response.json();
+                
+                // Append bot response to the UI
+                if(data.reply) {
+                    appendMessage('bot-msg', data.reply);
+                } else {
+                    appendMessage('bot-msg', 'Received an unparseable response from the server.');
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                appendMessage('bot-msg', 'Error: Could not reach the server or an unexpected issue occurred.');
+            }
+        }
+
+        function appendMessage(className, text) {
+            const chatBox = document.getElementById('chat-box');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${className}`;
+            msgDiv.textContent = text;
+            chatBox.appendChild(msgDiv);
+            // Auto-scroll to the bottom
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        }
+    </script>
+</body>
+</html>

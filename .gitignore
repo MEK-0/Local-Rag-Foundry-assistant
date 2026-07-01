@@ -1,0 +1,29 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Local data / models — never commit these
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+models/
+*.onnx
+*.gguf
+
+# Node (if any JS tooling is added later)
+node_modules/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # --- Local Models ---
     foundry_chat_model: str = "phi-3.5-mini"
-    foundry_embedding_model: str = "qwen3-embedding-0.6b"
+    foundry_embedding_model: str = "qwen3-0.6b"
 
     # --- Cloud Variables (Bulut modunda doldurulacak) ---
     azure_search_endpoint: Optional[str] = None

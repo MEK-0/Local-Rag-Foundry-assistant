@@ -9,9 +9,6 @@ retrieval and Azure OpenAI for generation — with a single config flag. This
 demonstrates that Foundry Local's OpenAI-compatible API makes local-to-cloud
 portability a non-issue, not a rewrite.
 
-> Built as part of a Microsoft Summer Internship project, inspired by
-> ["Building Your First Local RAG Application with Foundry Local"](https://techcommunity.microsoft.com/blog/azuredevcommunityblog/building-your-first-local-rag-application-with-foundry-local/4501968).
-
 ## Why this exists
 
 Most AI assistants assume a stable connection to the cloud. This one doesn't.
@@ -41,7 +38,7 @@ flowchart TB
 
     subgraph Local["Local mode"]
         SQL[("SQLite\ndata/rag.db")]
-        FL["Foundry Local\n(Phi-3.5 Mini, on-device)"]
+        FL["Foundry Local\n(qwen3-0.6b, on-device)"]
     end
 
     subgraph Cloud["Cloud mode (optional, Azure)"]
@@ -78,7 +75,7 @@ document sets, shared/team access, or when local hardware isn't available.
 | Server | FastAPI | FastAPI (same app) |
 | Embeddings | Foundry Local (`qwen3-embedding-0.6b`) | Azure OpenAI embeddings (optional) or Azure AI Search vectorizer |
 | Retrieval | Cosine similarity over SQLite-stored vectors | Azure AI Search |
-| Generation | Foundry Local (`Phi-3.5-mini`) | Azure OpenAI (`gpt-4o-mini`) |
+| Generation | Foundry Local (`qwen3-0.6b`) | Azure OpenAI (`gpt-4o-mini`) |
 | Storage | SQLite (`data/rag.db`) | Azure Blob Storage + Azure AI Search index |
 | Telemetry | Local logs | Application Insights |
 

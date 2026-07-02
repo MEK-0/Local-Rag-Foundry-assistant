@@ -1,131 +1,214 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local RAG Assistant</title>
+    <title>Industrial Automation Support Agent</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <style>
-        body { 
-            font-family: 'Segoe UI', system-ui, sans-serif; 
-            max-width: 800px; 
-            margin: 40px auto; 
-            padding: 20px; 
-            background: #f3f2f1; 
-            color: #323130;
-        }
-        h2 { text-align: center; color: #0078D4; }
-        #chat-box { 
-            height: 500px; 
-            background: white; 
-            border: 1px solid #e1dfdd; 
-            border-radius: 8px; 
-            padding: 20px; 
-            overflow-y: auto; 
-            margin-bottom: 20px; 
-            display: flex;
-            flex-direction: column;
-        }
-        .message { 
-            margin-bottom: 12px; 
-            padding: 12px 16px; 
-            border-radius: 8px; 
-            max-width: 75%; 
-            line-height: 1.4;
-        }
-        .user-msg { 
-            background: #0078D4; 
-            color: white; 
-            align-self: flex-end; 
-            border-bottom-right-radius: 2px;
-        }
-        .bot-msg { 
-            background: #f3f2f1; 
-            color: #323130; 
-            align-self: flex-start;
-            border-bottom-left-radius: 2px;
-            border: 1px solid #e1dfdd;
-        }
-        .input-group { display: flex; gap: 10px; }
-        input[type="text"] { 
-            flex: 1; 
-            padding: 14px; 
-            border: 1px solid #8a8886; 
-            border-radius: 6px; 
-            font-size: 16px;
-        }
-        button { 
-            padding: 14px 24px; 
-            background: #0078D4; 
-            color: white; 
-            border: none; 
-            border-radius: 6px; 
-            font-size: 16px; 
-            cursor: pointer; 
-            font-weight: 600;
-        }
-        button:hover { background: #106ebe; }
+        .typing-dot { animation: blink 1.4s infinite both; }
+        .typing-dot:nth-child(2) { animation-delay: .2s; }
+        .typing-dot:nth-child(3) { animation-delay: .4s; }
+        @keyframes blink { 0%, 100% { opacity: .2; } 20% { opacity: 1; } }
     </style>
 </head>
-<body>
+<body class="bg-[#131314] text-gray-200 font-sans h-screen flex flex-col overflow-hidden relative">
 
-    <h2>Local RAG Assistant</h2>
-    <div id="chat-box">
-        <div class="message bot-msg">Hello! I am your Local RAG Assistant. How can I help you today?</div>
+    <header class="h-14 border-b border-[#2d2e30] flex items-center px-6 justify-between bg-[#1e1f20]">
+        <div class="flex items-center space-x-2">
+            <span class="text-xl">🔧</span>
+            <h1 class="text-md font-bold text-gray-200 tracking-wide">Industrial Automation Support Agent</h1>
+        </div>
+        <div class="flex items-center space-x-4 text-xs">
+            <div class="flex items-center space-x-1">
+                <input type="checkbox" id="edge-mode" checked class="rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-0">
+                <label for="edge-mode" class="text-gray-400">Edge Mode</label>
+            </div>
+            <span class="bg-[#153e2b] text-[#4ade80] font-semibold px-2 py-0.5 rounded-full border border-[#235e40]">Offline Ready</span>
+        </div>
+    </header>
+
+    <section class="bg-[#131314] px-6 py-3 border-b border-[#2d2e30] flex gap-2 overflow-x-auto whitespace-nowrap scrollbar-none">
+        <button onclick="quickSearch('PLC Connection Fault')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>🔍</span> <span>PLC Connection Fault</span></button>
+        <button onclick="quickSearch('Low Pressure Warning')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>⚠️</span> <span>Low Pressure Valve</span></button>
+        <button onclick="quickSearch('Conveyor Overload Reset')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>⚡</span> <span>Conveyor Overload</span></button>
+        <button onclick="quickSearch('Robot Calibration Checklist')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>📋</span> <span>Robot Axis Drift</span></button>
+    </section>
+
+    <main class="flex-1 overflow-y-auto p-6 space-y-6 max-w-5xl mx-auto w-full" id="chat-container">
+        <div class="bg-[#1e1f20] border border-[#2d2e30] rounded-xl p-5 max-w-3xl mx-auto space-y-3 shadow-lg">
+            <h3 class="text-md font-bold text-orange-400">Automation Support Agent – Ready</h3>
+            <p class="text-sm text-gray-400">Running locally on this device. No internet connection required.</p>
+            <div class="text-sm text-gray-300 space-y-1 pt-2">
+                <span class="font-medium text-gray-400 block mb-1">Ask me about:</span>
+                <ul class="list-disc list-inside space-y-1 text-gray-400 pl-2">
+                    <li>PLC fault diagnosis & logic validation</li>
+                    <li>Pneumatic valves & pressure testing parameters</li>
+                    <li>Conveyor calibration and robot axis troubleshooting</li>
+                </ul>
+            </div>
+        </div>
+    </main>
+
+    <div class="border-t border-[#2d2e30] p-4 bg-[#131314]">
+        <form id="chat-form" class="max-w-5xl mx-auto flex items-center space-x-3 bg-[#1e1f20] rounded-2xl border border-[#2d2e30] p-2 focus-within:border-blue-500/50 transition">
+            <button type="button" onclick="toggleModal(true)" class="p-2 hover:bg-[#2d2e30] rounded-xl text-gray-400 transition cursor-pointer" title="Doküman Yükle">
+                📁
+            </button>
+            <input type="text" id="user-input" placeholder="Describe the automation issue or ask a question..." autocomplete="off"
+                   class="flex-1 bg-transparent text-gray-100 placeholder-gray-500 text-sm px-2 py-2 outline-none">
+            <button type="submit" id="send-btn"
+                    class="bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm px-5 py-2 rounded-xl transition cursor-pointer">
+                Send
+            </button>
+        </form>
     </div>
-    
-    <div class="input-group">
-        <input type="text" id="user-input" placeholder="Type your message here..." onkeypress="handleKeyPress(event)">
-        <button onclick="sendMessage()">Send</button>
+
+    <div id="upload-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center hidden z-50">
+        <div class="bg-[#1e1f20] border border-[#2d2e30] rounded-2xl w-full max-w-lg p-6 space-y-4 relative shadow-2xl">
+            <div class="flex justify-between items-center border-b border-[#2d2e30] pb-3">
+                <h2 class="text-md font-bold text-gray-200 flex items-center gap-2">📄 Upload Document</h2>
+                <button onclick="toggleModal(false)" class="text-gray-500 hover:text-gray-300 text-lg cursor-pointer">&times;</button>
+            </div>
+            <p class="text-xs text-gray-400">Add a <span class="font-mono text-blue-400">.md</span> file to the local knowledge base. It will be chunked and indexed immediately into SQLite.</p>
+            
+            <div class="border-2 border-dashed border-[#3e4042] hover:border-blue-500/50 rounded-xl p-8 text-center bg-[#131314] cursor-pointer transition relative group" onclick="document.getElementById('file-field').click()">
+                <input type="file" id="file-field" accept=".md" class="hidden" onchange="handleFileSelect(this)">
+                <div class="text-3xl mb-2">📁</div>
+                <p class="text-sm text-gray-300 group-hover:text-blue-400 transition" id="upload-status-text">Drop file here or <span class="underline">click to browse</span></p>
+            </div>
+            <div class="flex justify-end space-x-2">
+                <button onclick="toggleModal(false)" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs rounded-xl cursor-pointer transition">Cancel</button>
+                <button id="modal-upload-btn" onclick="uploadSelectedFile()" disabled class="px-4 py-2 bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 hover:bg-blue-500 text-white text-xs rounded-xl cursor-pointer transition">Upload and Index</button>
+            </div>
+        </div>
     </div>
 
     <script>
-        async function sendMessage() {
-            const input = document.getElementById('user-input');
-            const message = input.value.trim();
-            if (!message) return;
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const chatContainer = document.getElementById('chat-container');
+        const sendBtn = document.getElementById('send-btn');
+        let selectedFile = null;
 
-            // Append user message to the UI
-            appendMessage('user-msg', message);
-            input.value = '';
+        function toggleModal(show) {
+            const modal = document.getElementById('upload-modal');
+            modal.classList.toggle('hidden', !show);
+            if(!show) {
+                selectedFile = null;
+                document.getElementById('upload-status-text').innerHTML = 'Drop file here or <span class="underline">click to browse</span>';
+                document.getElementById('modal-upload-btn').disabled = true;
+            }
+        }
+
+        function handleFileSelect(input) {
+            if(input.files.length > 0) {
+                selectedFile = input.files[0];
+                document.getElementById('upload-status-text').innerText = `Selected: ${selectedFile.name}`;
+                document.getElementById('modal-upload-btn').disabled = false;
+            }
+        }
+
+        async function uploadSelectedFile() {
+            if(!selectedFile) return;
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            const statusText = document.getElementById('upload-status-text');
+            statusText.innerText = "Chunking and indexing vectors...";
 
             try {
-                // Send request to FastAPI /chat endpoint
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+                if(response.ok) {
+                    alert(data.message);
+                    toggleModal(false);
+                } else {
+                    alert("Error: " + data.detail);
+                }
+            } catch (err) {
+                alert("Upload failed connection error.");
+            }
+        }
+
+        function quickSearch(text) {
+            userInput.value = text;
+            chatForm.requestSubmit();
+        }
+
+        function appendMessage(text, thinkingText = "", isAi = false) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = isAi ? "max-w-4xl space-y-2 animate-fade-in" : "max-w-xl ml-auto text-right";
+    
+            if (!isAi) {
+                msgDiv.innerHTML = `<div class="inline-block bg-blue-600/20 border border-blue-500/30 rounded-2xl px-4 py-2.5 text-sm text-left text-gray-200">${text}</div>`;
+            } else {
+                // Görseldeki (03-chat-response.png) gibi başlıkları turuncu yapmak için regex ile stil giydiriyoruz
+                let formattedText = text
+                    .replace(/Summary:/g, '<strong class="text-orange-400 block mb-1">Summary:</strong>')
+                    .replace(/Safety Warnings\s*:/g, '<span class="inline-block bg-orange-500/10 border border-orange-500/20 text-orange-400 font-bold px-2 py-0.5 rounded mb-2">Safety Warnings :</span>')
+                    .replace(/Step-by-step Guidance:/g, '<strong class="text-orange-400 block mt-4 mb-2">Step-by-step Guidance:</strong>')
+                    .replace(/Reference:/g, '<strong class="text-orange-400 block mt-4 mb-1">Reference:</strong>');
+
+                let thinkingHtml = "";
+                if (thinkingText) {
+                    thinkingHtml = `
+                        <details class="bg-[#1e1f20] border border-[#2d2e30] rounded-xl p-2 mb-2 text-xs text-gray-400 cursor-pointer group">
+                            <summary class="font-medium select-none text-gray-500 group-open:text-gray-300">💡 Thinking Process (Click to expand)</summary>
+                            <div class="mt-2 pl-3 border-l-2 border-blue-500/40 whitespace-pre-line font-mono leading-relaxed text-gray-400 bg-[#131314] p-2 rounded-lg">${thinkingText}</div>
+                        </details>
+                    `;
+            }
+            msgDiv.innerHTML = `
+               ${thinkingHtml}
+               <div class="bg-[#1e1f20] border border-[#2d2e30] rounded-2xl p-5 text-sm leading-relaxed text-gray-200 shadow-md">
+                    <div class="max-w-none text-gray-300 whitespace-pre-line space-y-1">${formattedText}</div>
+                </div>
+            `;
+            }
+            chatContainer.appendChild(msgDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+
+        function createThinkingIndicator() {
+            const indicator = document.createElement('div');
+            indicator.id = 'thinking-indicator';
+            indicator.className = "flex items-center space-x-2 text-sm text-gray-500 p-2";
+            indicator.innerHTML = `<span>Analyzing local knowledge base</span><span class="typing-dot">.</span><span class="typing-dot">.</span><span class="typing-dot">.</span>`;
+            chatContainer.appendChild(indicator);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            appendMessage(message, "", false);
+            userInput.value = '';
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            createThinkingIndicator();
+
+            try {
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: message })
                 });
-                
                 const data = await response.json();
-                
-                // Append bot response to the UI
-                if(data.reply) {
-                    appendMessage('bot-msg', data.reply);
-                } else {
-                    appendMessage('bot-msg', 'Received an unparseable response from the server.');
-                }
-
+                document.getElementById('thinking-indicator')?.remove();
+                appendMessage(data.reply, data.thinking, true);
             } catch (error) {
-                console.error('Error:', error);
-                appendMessage('bot-msg', 'Error: Could not reach the server or an unexpected issue occurred.');
+                document.getElementById('thinking-indicator')?.remove();
+                appendMessage("Error communicating with local server.", "", true);
+            } finally {
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                userInput.focus();
             }
-        }
-
-        function appendMessage(className, text) {
-            const chatBox = document.getElementById('chat-box');
-            const msgDiv = document.createElement('div');
-            msgDiv.className = `message ${className}`;
-            msgDiv.textContent = text;
-            chatBox.appendChild(msgDiv);
-            // Auto-scroll to the bottom
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        function handleKeyPress(e) {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
-        }
+        });
     </script>
 </body>
 </html>

@@ -58,3 +58,17 @@ def load_markdown_files(directory: str = "docs/sample_docs") -> dict:
                 docs[filename] = f.read()
                 
     return docs
+
+def chunk_document(file_path: str) -> List[str]:
+    """
+    Reads a single document from file_path and splits it into token-aware chunks.
+    This bridge function connects the API upload logic with split_text_into_chunks.
+    """
+    if not os.path.exists(file_path):
+        return []
+        
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+        
+    # Senin mevcut token tabanlı parçalama fonksiyonunu çağırıyoruz
+    return split_text_into_chunks(content)

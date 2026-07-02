@@ -1,24 +1,23 @@
 import os
-from fastapi import FastAPI, HTTPException
+import shutil
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from src.rag_pipeline import process_chat_query
+from src.chunking import chunk_document          # src/chunking.py'ye eklediğimiz fonksiyon
+from src.db import insert_chunk                 # Senin db.py içindeki orijinal fonksiyonun
+from src.llm_client import get_embedding
 import uvicorn
 
-# Bir önceki adımda oluşturduğumuz config dosyasından ayarları çekiyoruz
 from src.config import settings
 
 app = FastAPI(title=settings.app_name)
 
-# --- Veri Modelleri ---
 class ChatRequest(BaseModel):
     message: str
 
-# --- Uç Noktalar (Endpoints) ---
-
 @app.get("/health")
 async def health_check():
-    """Sistemin ayakta olup olmadığını ve hangi modda çalıştığını kontrol eder."""
     return {
         "status": "ok", 
         "mode": settings.mode, 
@@ -27,24 +26,49 @@ async def health_check():
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    """Kullanıcıdan gelen soruları RAG boru hattına (pipeline) iletecek ana uç nokta."""
     try:
-        reply = process_chat_query(request.message)
-        return {"reply": reply}
+        result = process_chat_query(request.message)
+        return result
     except Exception as e:
-        return {"reply": f"An error occurred: {str(e)}"}
+        return {"reply": f"An error occurred: {str(e)}", "thinking": "Pipeline failure."}
 
-@app.post("/ingest")
-async def ingest_endpoint():
-    """Dokümanların vektör veritabanına aktarımını tetikleyecek uç nokta."""
-    # İleride src/chunking.py ve veri tabanı entegrasyonu buraya gelecek.
-    return {"status": "success", "message": "Doküman aktarımı başlatıldı (Placeholder)."}
-
-# --- Statik Arayüz Sunumu ---
+# --- DİNAMİK DOSYA YÜKLEME UÇ NOKTASI (UPLOAD ENDPOINT) ---
+@app.post("/upload")
+async def upload_file_endpoint(file: UploadFile = File(...)):
+    """Kullanıcının arayüzden yüklediği .md dosyasını kaydeder, parçalar ve DB'ye yazar."""
+    if not file.filename.endswith('.md'):
+        raise HTTPException(status_code=400, detail="Sadece Markdown (.md) dosyaları desteklenmektedir.")
+    
+    # 1. Dosyayı geçici olarak sakla
+    target_dir = "docs/sample_docs"
+    os.makedirs(target_dir, exist_ok=True)
+    file_path = os.path.join(target_dir, file.filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    try:
+        # 2. Token tabanlı parçalayıcıyı çağırıyoruz
+        chunks = chunk_document(file_path)
+        
+        if not chunks:
+            raise HTTPException(status_code=400, detail="Dosya içeriği boş veya parçalara ayrılamadı.")
+        
+        # 3. Her bir parçanın embedding'ini alıp doğrudan senin insert_chunk fonksiyonunla DB'ye yazıyoruz
+        for chunk_text in chunks:
+            embedding = get_embedding(chunk_text)
+            insert_chunk(
+                source_file=file.filename,
+                chunk_text=chunk_text,
+                embedding=embedding
+            )
+        
+        return {"status": "success", "message": f"'{file.filename}' başarıyla yüklendi ve {len(chunks)} parçaya ayrıldı."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dosya işlenirken hata oluştu: {str(e)}")
 
 @app.get("/")
 async def serve_ui():
-    """Kullanıcı arayüzünü (static/index.html) sunar."""
     ui_path = os.path.join("static", "index.html")
     if os.path.exists(ui_path):
         return FileResponse(ui_path)

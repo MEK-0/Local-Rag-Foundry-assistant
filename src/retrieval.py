@@ -24,7 +24,7 @@ def retrieve_top_k(query_embedding: List[float], top_k: int = None) -> List[Dict
     chunks = get_all_chunks()
     scored_chunks = []
     
-    # Hata veren for döngüsü burası, girintilerin tam 4 boşluk olduğundan emin ol
+    
     for chunk in chunks:
         score = cosine_similarity(query_embedding, chunk["embedding"])
         chunk_data = chunk.copy()

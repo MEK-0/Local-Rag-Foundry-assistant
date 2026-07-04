@@ -301,7 +301,7 @@ pytest tests/
 
 ## Roadmap
 
-See [`tests-Plan/RAGRoadmap.md`](tests-Plan/RAGRoadmap.md) for the full advanced-RAG build
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full advanced-RAG build
 plan, prioritized day-by-day, with the reasoning behind each architectural
 choice.
 

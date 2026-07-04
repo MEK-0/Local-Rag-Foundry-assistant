@@ -27,3 +27,4 @@ node_modules/
 
 # Logs
 *.logconfig.env
+config.env

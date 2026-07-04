@@ -1,106 +1,200 @@
-# Local RAG Assistant — Foundry Local + Azure Hybrid
+# Local RAG Assistant — Advanced Offline RAG with Foundry Local
 
-An offline-first document Q&A assistant. It answers questions grounded in your
-own documents using Retrieval-Augmented Generation (RAG), running entirely
+An offline-first document Q&A assistant that answers questions grounded in
+your own documents (Markdown, PDF, Word, Excel/CSV), running entirely
 on-device with [Microsoft Foundry Local](https://learn.microsoft.com/azure/ai-foundry/foundry-local/).
 
-The same codebase can switch to a **cloud mode** — Azure AI Search for
-retrieval and Azure OpenAI for generation — with a single config flag. This
-demonstrates that Foundry Local's OpenAI-compatible API makes local-to-cloud
-portability a non-issue, not a rewrite.
+This isn't a naive "embed and cosine-similarity" RAG demo. The retrieval
+pipeline combines **hybrid search (dense + BM25)**, **cross-encoder
+re-ranking**, **retrieval grading**, and **query rewriting** — the same
+techniques used in production-grade RAG systems — and every stage exposes
+its scores and latency so the mechanism is visible, not a black box.
+
+The same codebase can also switch to a **cloud mode** (Azure AI Search +
+Azure OpenAI) with a single config flag, since Foundry Local exposes an
+OpenAI-compatible API. Local-to-cloud portability is a config change, not a
+rewrite.
+
+> Full roadmap and design rationale for every architectural decision:
+> [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
 ## Why this exists
 
-Most AI assistants assume a stable connection to the cloud. This one doesn't.
-It's designed for the scenario where a user has no internet access at all —
-and it optionally upgrades to a cloud-backed, larger-scale setup when that
-tradeoff makes sense (bigger document sets, no local hardware, shared team
-access).
+Most AI assistants assume a stable connection to the cloud. This one
+doesn't. It's built for the scenario where a user has no internet access at
+all — a field engineer, an air-gapped facility, a regulated environment —
+and it optionally upgrades to a cloud-backed setup only when that tradeoff
+is worth it (bigger document sets, shared team access, no local hardware).
+
+## What makes this different from a tutorial RAG project
+
+| Naive RAG (typical tutorial) | This project |
+|---|---|
+| Single dense (embedding) retrieval | Hybrid retrieval: dense + BM25, fused with Reciprocal Rank Fusion |
+| Top-K by raw similarity score | Cross-encoder re-ranking on top-K candidates before generation |
+| Always trusts retrieved chunks | Retrieval grader checks relevance before the LLM sees the context; falls back to "I don't know" instead of hallucinating |
+| Fixed-size chunking | Semantic chunking on topic-shift boundaries |
+| Markdown only | Markdown, PDF, DOCX, XLSX/CSV via a pluggable parser interface |
+| No visibility into *why* an answer was produced | Explainability panel: per-chunk BM25/dense/rerank scores, latency breakdown per pipeline stage, source citations you can click into |
+| No quantified quality claim | A benchmark harness with a labeled eval set reports Precision@K / Recall@K / MRR and faithfulness scores, comparing naive vs. advanced retrieval numerically |
 
 ## Architecture
 
 ```mermaid
 flowchart TB
     subgraph Client["Client"]
-        UI["Chat UI (static/index.html)"]
+        UI["Chat UI — dashboard with latency trace,\nsource citations, explainability panel"]
     end
 
     subgraph Server["Server — FastAPI (api/app.py)"]
-        API["/chat, /ingest, /health endpoints"]
+        API["/chat  /ingest  /eval  /health"]
     end
 
-    subgraph Pipeline["RAG Pipeline (src/rag_pipeline.py)"]
-        CH["Chunker"]
-        EMB["Embedding client"]
-        RET["Retriever"]
-        PR["Prompt builder"]
+    subgraph Ingestion["Ingestion Pipeline (src/parsers/, src/chunking.py)"]
+        PARSE["Format parsers\n(Markdown / PDF / DOCX / XLSX)"]
+        CHUNK["Semantic chunker\n+ metadata (source, page, chunk_index)"]
+    end
+
+    subgraph Retrieval["Retrieval Pipeline (src/retrieval/)"]
+        QR["Query rewriter\n(expansion / HyDE)"]
+        HYB["Hybrid search\n(BM25 + dense, RRF fusion)"]
+        RR["Cross-encoder re-ranker"]
+        GR["Retrieval grader\n(relevance check -> fallback)"]
     end
 
     subgraph Local["Local mode"]
         SQL[("SQLite\ndata/rag.db")]
-        FL["Foundry Local\n(qwen3-0.6b, on-device)"]
+        FL["Foundry Local\n(chat + embedding models, on-device)"]
     end
 
     subgraph Cloud["Cloud mode (optional, Azure)"]
-        AIS[("Azure AI Search\nindex")]
-        BLOB[("Azure Blob Storage\nsource docs")]
-        AOAI["Azure OpenAI\n(gpt-4o-mini)"]
+        AIS[("Azure AI Search")]
+        BLOB[("Azure Blob Storage")]
+        AOAI["Azure OpenAI (gpt-4o-mini)"]
     end
 
-    TEL["Application Insights\n(telemetry)"]
+    EVAL["Evaluation harness\n(scripts/run_eval.py)\nPrecision@K, Recall@K, MRR, faithfulness"]
+    TEL["Telemetry: per-stage latency + logs"]
 
-    UI --> API --> Pipeline
-    CH --> EMB --> RET --> PR
-    Pipeline -->|MODE=local| SQL
-    Pipeline -->|MODE=local| FL
-    Pipeline -->|MODE=cloud| AIS
-    Pipeline -->|MODE=cloud| AOAI
+    UI --> API
+    PARSE --> CHUNK --> SQL
+    API --> QR --> HYB --> RR --> GR --> API
+    HYB -->|MODE=local| SQL
+    HYB -->|MODE=cloud| AIS
+    GR --> FL
+    GR -->|MODE=cloud| AOAI
     BLOB -.sync.-> SQL
     BLOB -.sync.-> AIS
     API -.-> TEL
+    EVAL -.measures.-> Retrieval
 ```
 
-**Local mode**: everything runs on the machine. No network calls after the
-one-time model download. Documents live as markdown files, chunked and
-embedded with Foundry Local's embedding model, stored in SQLite.
+**Local mode**: everything runs on the machine, no network calls after the
+one-time model download. Documents (of any supported format) are parsed,
+semantically chunked, embedded with Foundry Local's embedding model, and
+indexed in SQLite with both dense vectors and BM25 term statistics.
 
-**Cloud mode**: the same chunking/prompting logic, but retrieval goes through
-Azure AI Search and generation through Azure OpenAI. Useful for larger
-document sets, shared/team access, or when local hardware isn't available.
+**Cloud mode**: the same pipeline logic, but retrieval goes through Azure AI
+Search and generation through Azure OpenAI. Useful for larger document sets,
+shared/team access, or when local hardware isn't available.
+
+## Feature status
+
+Legend: [x] implemented · [~] in progress · [ ] planned (see roadmap for order)
+
+**Retrieval pipeline**
+- [~] Hybrid search (BM25 + dense, RRF fusion)
+- [ ] Cross-encoder re-ranking
+- [ ] Query rewriting / multi-query retrieval
+- [ ] Retrieval grader (Self-RAG style relevance check)
+- [ ] Context compression (sentence-window retrieval)
+
+**Ingestion**
+- [x] Markdown parsing + chunking
+- [~] Semantic chunking (topic-boundary based, replacing fixed-size)
+- [ ] PDF parser (`pdfplumber`)
+- [ ] DOCX parser (`python-docx`)
+- [ ] XLSX/CSV parser (`pandas`)
+- [ ] Incremental ingestion (hash-based dedup)
+
+**UI / Observability**
+- [x] Basic chat interface
+- [ ] Per-stage latency trace (embedding / retrieval / rerank / generation)
+- [ ] Explainability panel (per-chunk score breakdown)
+- [ ] Source citation viewer
+- [ ] Naive-vs-Advanced comparison toggle
+
+**Engineering**
+- [x] Local/cloud mode switch via config
+- [ ] Test suite (pytest, unit + integration)
+- [ ] Structured logging with request tracing
+- [ ] CI pipeline (lint + tests on push)
+
+**Evaluation**
+- [ ] Labeled eval set (20-30 Q&A pairs with ground-truth sources)
+- [ ] Retrieval metrics (Precision@K, Recall@K, MRR)
+- [ ] Generation faithfulness scoring (local LLM-as-judge)
+- [ ] Automated benchmark report (naive vs. advanced comparison)
+
+Full detail, rationale, and day-by-day build order for every item above:
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Tech stack
 
 | Layer | Local mode | Cloud mode |
 |---|---|---|
 | Server | FastAPI | FastAPI (same app) |
-| Embeddings | Foundry Local (`qwen3-embedding-0.6b`) | Azure OpenAI embeddings (optional) or Azure AI Search vectorizer |
-| Retrieval | Cosine similarity over SQLite-stored vectors | Azure AI Search |
-| Generation | Foundry Local (`qwen3-0.6b`) | Azure OpenAI (`gpt-4o-mini`) |
-| Storage | SQLite (`data/rag.db`) | Azure Blob Storage + Azure AI Search index |
-| Telemetry | Local logs | Application Insights |
+| Parsers | Markdown, PDF (`pdfplumber`), DOCX (`python-docx`), XLSX/CSV (`pandas`) | same |
+| Embeddings | Foundry Local (`qwen3-embedding-0.6b`) | Azure OpenAI embeddings / Azure AI Search vectorizer |
+| Sparse retrieval | `rank-bm25` | Azure AI Search (built-in) |
+| Re-ranking | Local cross-encoder (`bge-reranker-base` or ONNX equivalent) | Azure AI Search semantic ranker (optional) |
+| Generation | Foundry Local chat model | Azure OpenAI (`gpt-4o-mini`) |
+| Storage | SQLite (`data/rag.db`) — vectors + BM25 stats + metadata | Azure Blob Storage + Azure AI Search index |
+| Telemetry | Local structured logs | Application Insights |
+
+> **Model note:** chat and embedding must use *different* models — a
+> general chat model is not an embedding model. This repo's `config.env`
+> currently needs a fix here (embedding should point to
+> `qwen3-embedding-0.6b`, not the chat model) — tracked as the first item
+> before hybrid search work begins, since every retrieval experiment after
+> that depends on embeddings being correct.
 
 ## Project layout
 
 ```
-├── api/app.py              FastAPI app: routes, serves the chat UI
+├── api/app.py                FastAPI app: routes, serves the dashboard UI
 ├── src/
-│   ├── config.py            Central config, reads .env, MODE switch
-│   ├── db.py                SQLite schema + helpers
-│   ├── chunking.py          Document chunking
-│   ├── llm_client.py        Foundry Local + Azure OpenAI client wrappers
-│   ├── retrieval.py         Local cosine-similarity retrieval
-│   ├── rag_pipeline.py      Orchestrates retrieval + generation, mode switch
-│   ├── azure_search.py      Azure AI Search index + query helpers
-│   ├── azure_storage.py     Blob Storage document sync
-│   └── telemetry.py         Application Insights logging
+│   ├── config.py              Central config, reads .env, MODE switch
+│   ├── db.py                  SQLite schema (vectors, BM25 stats, metadata)
+│   ├── chunking.py             Semantic chunker
+│   ├── parsers/                Pluggable document parsers
+│   │   ├── base.py              Parser interface (protocol)
+│   │   ├── markdown_parser.py
+│   │   ├── pdf_parser.py
+│   │   ├── docx_parser.py
+│   │   └── xlsx_parser.py
+│   ├── retrieval/
+│   │   ├── hybrid.py             BM25 + dense fusion (RRF)
+│   │   ├── reranker.py           Cross-encoder re-ranking
+│   │   ├── grader.py             Retrieval relevance grading
+│   │   └── query_rewrite.py      Query expansion / HyDE
+│   ├── llm_client.py           Foundry Local + Azure OpenAI client wrappers
+│   ├── rag_pipeline.py         Orchestrates parsing -> retrieval -> generation
+│   ├── azure_search.py         Azure AI Search index + query helpers
+│   ├── azure_storage.py        Blob Storage document sync
+│   └── telemetry.py            Latency tracing + structured logging
 ├── scripts/
-│   ├── ingest.py            Chunk + embed + store documents (local mode)
-│   └── sync_azure.py        Push docs to Blob Storage + Azure AI Search
-├── static/index.html        Single-file chat UI
-├── docs/sample_docs/        Example markdown knowledge base
-├── tests/test_retrieval.py  Retrieval sanity tests
-├── data/                    SQLite DB lives here (gitignored)
-├── config.example.env       Template for environment variables
+│   ├── ingest.py                Parse + chunk + embed + index documents
+│   ├── sync_azure.py            Push docs to Blob Storage + Azure AI Search
+│   └── run_eval.py              Benchmark harness (Faz 5)
+├── static/                     Dashboard UI (chat, latency trace, explainability panel)
+├── docs/
+│   ├── ROADMAP.md               Full advanced-RAG roadmap and build order
+│   ├── sample_docs/             Example knowledge base (multi-format)
+│   └── eval_set.json            Labeled Q&A pairs for benchmarking
+├── tests/                       Unit + integration tests
+├── data/                        SQLite DB (gitignored)
+├── config.example.env           Template for environment variables
 └── requirements.txt
 ```
 
@@ -133,8 +227,10 @@ Leave `MODE=local` in `.env` — no Azure credentials required for this mode.
 python scripts/ingest.py
 ```
 
-This chunks the markdown files in `docs/sample_docs/`, generates embeddings
-via Foundry Local, and stores them in `data/rag.db`.
+Parses every supported file in `docs/sample_docs/` (Markdown, PDF, DOCX,
+XLSX), semantically chunks it, generates embeddings and BM25 statistics via
+Foundry Local, and indexes everything in `data/rag.db`. Prints an ingestion
+report: file count, chunk count, token counts per file.
 
 **4. Run the app**
 
@@ -142,17 +238,15 @@ via Foundry Local, and stores them in `data/rag.db`.
 uvicorn api.app:app --reload
 ```
 
-Open `http://127.0.0.1:8000`. Turn off Wi-Fi and it still works — that's the
-whole point.
+Open `http://127.0.0.1:8000`. Turn off Wi-Fi and it still works.
 
 ## Setup — cloud mode (optional, Azure)
 
 Requires an Azure subscription (e.g. the Azure for Students $100 credit).
 
-**1. Provision resources** (see `scripts/sync_azure.py` header comment for
-the exact resources and free-tier SKUs used: Azure AI Search Free tier,
-a Storage Account, an Azure OpenAI resource with a `gpt-4o-mini` deployment,
-and Application Insights.)
+**1. Provision resources** — Azure AI Search (Free tier), a Storage Account,
+an Azure OpenAI resource with a `gpt-4o-mini` deployment, and Application
+Insights. See `scripts/sync_azure.py` header comment for exact SKUs.
 
 **2. Fill in `.env`**
 
@@ -175,7 +269,17 @@ python scripts/sync_azure.py
 uvicorn api.app:app --reload
 ```
 
-The chat UI and API surface are identical — only `MODE` changes.
+The dashboard UI and API surface are identical — only `MODE` changes.
+
+## Evaluation
+
+```bash
+python scripts/run_eval.py
+```
+
+Runs the labeled eval set (`docs/eval_set.json`) against both naive and
+advanced retrieval configurations, and writes a comparison report
+(Precision@K, Recall@K, MRR, faithfulness) to `docs/eval_report.md`.
 
 ## Cost & safety notes (cloud mode)
 
@@ -183,17 +287,23 @@ The chat UI and API surface are identical — only `MODE` changes.
   cover this project's needs at $0.
 - Azure OpenAI is billed per token — set a **budget alert** in the Azure
   portal before testing.
-- Never commit `.env`. `config.example.env` is the only file that should be
+- Never commit `.env`. `config.env` is the only file that should be
   tracked.
 - If deploying a public demo, put a request-rate limit in front of the
-  `/chat` endpoint (see `api/app.py`) so a public repo doesn't turn into an
-  open tap on your credit.
+  `/chat` endpoint so a public repo doesn't turn into an open tap on your
+  credit.
 
 ## Testing
 
 ```bash
 pytest tests/
 ```
+
+## Roadmap
+
+See [`tests-Plan/RAGRoadmap.md`](tests-Plan/RAGRoadmap.md) for the full advanced-RAG build
+plan, prioritized day-by-day, with the reasoning behind each architectural
+choice.
 
 ## License
 

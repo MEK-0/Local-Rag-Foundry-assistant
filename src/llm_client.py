@@ -7,7 +7,7 @@ if settings.mode == "local":
         base_url="http://127.0.0.1:50124/v1",
         api_key="not-needed-for-local"
     )
-    # Yerel vektörleştirme için sentence-transformers (Çevrimdışı çalışır)
+    
     from sentence_transformers import SentenceTransformer
     embedder = SentenceTransformer("all-MiniLM-L6-v2")
 else:

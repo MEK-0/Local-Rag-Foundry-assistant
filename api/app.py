@@ -81,10 +81,11 @@ async def upload_file_endpoint(file: UploadFile = File(...)):
             # Generate the vector representation via Foundry Local embedding client
             embedding = get_embedding(chunk_text)
             
-            # Since our native insert_chunk takes discrete parameters, we pass the extracted metadata
-            # You can expand the local DB schema later to store page_number explicitly
+            # FIXED: Enriched parameter mapping to match the new hybrid SQLite schema
             insert_chunk(
                 source_file=chunk_metadata["source_file"],
+                page_number=chunk_metadata["page_number"],
+                chunk_index=chunk_metadata["chunk_index"],
                 chunk_text=chunk_text,
                 embedding=embedding
             )

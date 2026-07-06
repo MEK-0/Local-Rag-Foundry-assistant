@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 from typing import Dict, Any
-from src.parsers.base import BaseParser
+from src.parser.base import BaseParser
 
 class ExcelCSVDocumentParser(BaseParser):
     def parse(self, file_path: str) -> Dict[str, Any]:

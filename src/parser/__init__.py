@@ -1,9 +1,9 @@
 import os
-from src.parsers.base import BaseParser
-from src.parsers.markdown_parser import MarkdownDocumentParser
-from src.parsers.pdf_parser import PDFDocumentParser
-from src.parsers.docx_parser import DocxDocumentParser
-from src.parsers.xlsx_parser import ExcelCSVDocumentParser
+from src.parser.base import BaseParser
+from src.parser.markdown_parser import MarkdownDocumentParser
+from src.parser.pdf_parser import PDFDocumentParser
+from src.parser.docx_parser import DocxDocumentParser
+from src.parser.xlsx_parser import ExcelCSVDocumentParser
 
 def get_parser(file_path: str) -> BaseParser:
     """

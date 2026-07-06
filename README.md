@@ -111,10 +111,10 @@ Legend: [x] implemented · [~] in progress · [ ] planned (see roadmap for order
 
 **Ingestion**
 - [x] Markdown parsing + chunking
-- [~] Semantic chunking (topic-boundary based, replacing fixed-size)
-- [ ] PDF parser (`pdfplumber`)
-- [ ] DOCX parser (`python-docx`)
-- [ ] XLSX/CSV parser (`pandas`)
+- [x] Semantic chunking (topic-boundary based, replacing fixed-size)
+- [x] PDF parser (`pdfplumber`)
+- [x] DOCX parser (`python-docx`)
+- [x] XLSX/CSV parser (`pandas`)
 - [ ] Incremental ingestion (hash-based dedup)
 
 **UI / Observability**

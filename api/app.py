@@ -7,7 +7,7 @@ from src.rag_pipeline import process_chat_query
 from src.chunking import chunk_document          
 from src.db import insert_chunk                 
 from src.llm_client import get_embedding
-from src.parsers import get_parser                  # Import the central parser factory
+from src.parser import get_parser                  # Import the central parser factory
 import uvicorn
 
 from src.config import settings

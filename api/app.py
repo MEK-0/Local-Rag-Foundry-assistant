@@ -7,6 +7,7 @@ from src.rag_pipeline import process_chat_query
 from src.chunking import chunk_document          
 from src.db import insert_chunk                 
 from src.llm_client import get_embedding
+from src.parsers import get_parser                  # Import the central parser factory
 import uvicorn
 
 from src.config import settings
@@ -37,37 +38,64 @@ async def chat_endpoint(request: ChatRequest):
 # --- DYNAMIC DOCUMENT INGESTION (UPLOAD ENDPOINT) ---
 @app.post("/upload")
 async def upload_file_endpoint(file: UploadFile = File(...)):
-    """Saves, tokens, embeds, and indexes an uploaded Markdown file locally into SQLite."""
-    if not file.filename.endswith('.md'):
-        raise HTTPException(status_code=400, detail="Only Markdown (.md) files are supported.")
+    """Saves, parses, tokens, embeds, and indexes multi-format documents locally into SQLite."""
+    filename = file.filename
+    ext = os.path.splitext(filename)[1].lower()
+    
+    # Supported file extensions validation guardrail
+    supported_extensions = ['.md', '.pdf', '.docx', '.xlsx', '.xls', '.csv']
+    if ext not in supported_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file format. Supported types: {', '.join(supported_extensions)}"
+        )
     
     # Save the file temporarily to local disk storage
     target_dir = "docs/sample_docs"
     os.makedirs(target_dir, exist_ok=True)
-    file_path = os.path.join(target_dir, file.filename)
+    file_path = os.path.join(target_dir, filename)
     
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
     try:
-        # Process the document into token-aware semantic sections
-        chunks = chunk_document(file_path)
+        # 1. Dynamically retrieve the dedicated parser via the factory module
+        parser = get_parser(file_path)
+        parsed_data = parser.parse(file_path)
         
-        if not chunks:
+        raw_content = parsed_data["content"]
+        file_metadata = parsed_data["metadata"]
+        
+        # 2. Process the extracted document content into token-aware semantic chunks
+        # Uses standard configurations (size=500, overlap=50)
+        chunks_data = chunk_document(file_path, raw_content)
+        
+        if not chunks_data:
             raise HTTPException(status_code=400, detail="The file content is empty or could not be chunked properly.")
         
-        # Compute vector embeddings and persist chunks sequentially to the database
-        for chunk_text in chunks:
+        # 3. Compute vector embeddings and persist chunks sequentially with rich metadata
+        for item in chunks_data:
+            chunk_text = item["chunk_text"]
+            chunk_metadata = item["metadata"]
+            
+            # Generate the vector representation via Foundry Local embedding client
             embedding = get_embedding(chunk_text)
+            
+            # Since our native insert_chunk takes discrete parameters, we pass the extracted metadata
+            # You can expand the local DB schema later to store page_number explicitly
             insert_chunk(
-                source_file=file.filename,
+                source_file=chunk_metadata["source_file"],
                 chunk_text=chunk_text,
                 embedding=embedding
             )
         
         return {
             "status": "success", 
-            "message": f"'{file.filename}' successfully uploaded and indexed into {len(chunks)} token-aware chunks."
+            "message": f"'{filename}' successfully parsed via {file_metadata['parser_used']} and indexed into {len(chunks_data)} metadata-rich chunks.",
+            "analytics": {
+                "chunk_count": len(chunks_data),
+                "file_metadata": file_metadata
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File processing error: {str(e)}")

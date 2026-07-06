@@ -5,7 +5,7 @@ def grade_retrieved_chunks(query: str, chunks: List[Dict[str, Any]]) -> List[Dic
     """
     Grades retrieved chunks, enforces semantic uniqueness to prevent LLM token loops,
     and prunes dead weight. """
-    
+
     valid_chunks = []
     seen_texts = set()
     
@@ -14,7 +14,7 @@ def grade_retrieved_chunks(query: str, chunks: List[Dict[str, Any]]) -> List[Dic
         text_normalized = " ".join(chunk["chunk_text"].lower().split())
         
         # Jaccard Similarity / Exact overlap gate to block repetitive chunks
-        is_duplicate = false
+        is_duplicate = False
         for seen_text in seen_texts:
             # If a chunk shares more than 70% of its words with an already selected chunk, block it
             words_a = set(text_normalized.split())

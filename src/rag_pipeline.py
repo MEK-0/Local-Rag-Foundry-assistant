@@ -1,36 +1,61 @@
 import re
 from src.llm_client import get_embedding, generate_chat_response
-# UPDATED: Import the advanced hybrid retrieval module instead of legacy naive search
+from src.retrieval.query_rewriter import rewrite_query
 from src.retrieval.hybrid import hybrid_retrieve
+from src.retrieval.reranker import rerank_chunks
+from src.retrieval.grader import grade_retrieved_chunks
+from src.retrieval.compression import compress_context_chunks
 
 def process_chat_query(query: str) -> dict:
-    # 1. Generate local embedding vector for the user query
-    query_embedding = get_embedding(query)
+    # --- PHASE 1: QUERY REWRITING / EXPANSION ---
+    expanded_queries = rewrite_query(query)
     
-    # 2. RUN HIGH-GRADE HYBRID RETRIEVAL (BM25 + Dense fused via RRF)
-    # We pass both the raw query text and the embedding vector to the hybrid engine
-    top_chunks = hybrid_retrieve(query_text=query, query_embedding=query_embedding, top_k=4)
+    # --- PHASE 2: MULTI-QUERY HYBRID RETRIEVAL ---
+    all_candidate_chunks = []
+    seen_chunk_ids = set()
     
-    if not top_chunks:
+    for q_track in expanded_queries:
+        q_emb = get_embedding(q_track)
+        retrieved_candidates = hybrid_retrieve(query_text=q_track, query_embedding=q_emb, top_k=6)
+        
+        for chunk in retrieved_candidates:
+            if chunk["id"] not in seen_chunk_ids:
+                seen_chunk_ids.add(chunk["id"])
+                all_candidate_chunks.append(chunk)
+                
+    if not all_candidate_chunks:
         return {
-            "reply": "Summary: I couldn't find any relevant information in my knowledge base.",
-            "thinking": "No matching document chunks found in the hybrid database layers."
+            "reply": "Summary: I couldn't find any relevant verification parameters in my current database.",
+            "thinking": "No matching tokens across multiple expanded hybrid retrieval query paths."
         }
         
+    # --- PHASE 3: CROSS-ENCODER RE-RANKING ---
+    reranked_candidates = rerank_chunks(query=query, chunks=all_candidate_chunks, top_n=5)
+    
+    # --- PHASE 4: RETRIEVAL GRADER ---
+    graded_candidates = grade_retrieved_chunks(query=query, chunks=reranked_candidates)
+    
+    # --- PHASE 5: CONTEXT COMPRESSION ---
+    final_context_chunks = compress_context_chunks(query=query, chunks=graded_candidates)
+    
+    if not final_context_chunks:
+        return {
+            "reply": "Summary: Relevant document files were discovered, but they did not pass safety relevance validation thresholds.",
+            "thinking": "All chunks failed semantic safety boundaries during grading iterations."
+        }
+
+    # --- PHASE 6: CONTEXT COMPILING ---
     context_text = ""
     source_files = set()
-    for idx, chunk in enumerate(top_chunks):
-        # Enriched context logging with source file and explicit page numbers
+    for idx, chunk in enumerate(final_context_chunks):
         context_text += f"--- Document {idx+1} (Source: {chunk['source_file']}, Page: {chunk['page_number']}) ---\n"
         context_text += f"{chunk['chunk_text']}\n\n"
         if "source_file" in chunk:
             source_files.add(chunk["source_file"])
         
-    # Simplified, high-impact prompt. No complex tags or templates inside the LLM prompt.
     prompt = f"""You are an industrial automation expert. Answer the user's question directly, accurately, and concisely using ONLY the provided context. 
 
-If the answer is found in the context, provide a direct answer focusing on technical specifications, part names, or hours.
-If the context does not contain the answer, strictly reply with 'I don't know based on my documents.'
+Provide a direct 1-2 sentence answer focusing strictly on exact technical specifications, part names, or hours. Do not use conversational preambles, introductory thoughts, or duplicate sentences.
 
 CONTEXT:
 {context_text}
@@ -42,57 +67,51 @@ ANSWER:"""
 
     raw_response = generate_chat_response(prompt)
     
-    # --- AUTOMATED BACKGROUND ENGINEERING ---
-    # We let Python build the professional corporate layout instead of relying on the fragile LLM.
+    # --- ADVANCED POST-PROCESSING REGEX GATES ---
+    clean_reply = raw_response.strip()
     
-    # Split thoughts if the model still starts with "Okay, let me figure this out..." or similar blocks
-    thinking_content = ""
-    reply_content = raw_response
+    # Isolate and extract all the conversational fluff sentences ("Okay, let's...", "First, I need...", etc.)
+    fluff_patterns = [
+        r"okay,\s*let.*?\.", r"first,\s*i\s*need.*?\.", r"let's\s*see.*?\.", 
+        r"the\s*user\s*is\s*asking.*?\.", r"i\s*need\s*to\s*confirm.*?\.",
+        r"it's\s*possible\s*that.*?\.", r"however,\s*the\s*answer.*?\."
+    ]
     
-    conversation_starters = ["okay, let", "first, i need", "let's see", "i need to confirm"]
-    
-    # If the response contains chain of thought at the beginning, we extract it dynamically
-    if any(starter in raw_response.lower()[:150] for starter in conversation_starters):
-        # Find the last period or analytical transition in the first 300 characters
-        sentences = re.split(r'(?<=[.!?])\s+', raw_response)
-        thought_sentences = []
-        actual_sentences = []
-        
-        for sentence in sentences:
-            if any(st in sentence.lower() for st in conversation_starters) or "the user is asking" in sentence.lower():
-                thought_sentences.append(sentence)
-            else:
-                actual_sentences.append(sentence)
-                
-        if thought_sentences:
-            thinking_content = " ".join(thought_sentences).strip()
-            reply_content = " ".join(actual_sentences).strip()
+    extracted_fluff = []
+    for pattern in fluff_patterns:
+        matches = re.findall(pattern, clean_reply, re.IGNORECASE)
+        for match in matches:
+            extracted_fluff.append(match)
+            clean_reply = clean_reply.replace(match, "").strip()
 
-    # Build the required template dynamically using Python string engineering
-    references_string = ", ".join(source_files) if source_files else "Local Knowledge Base"
-    
-    # Detect if any common safety/warning words exist in the text to populate safety section
-    safety_keywords = ["warning", "caution", "critical", "responsibility", "backup", "hazard", "prior to"]
-    has_safety = any(kw in reply_content.lower() for kw in safety_keywords)
-    
-    safety_block = "None specified in the immediate context."
-    if "backup" in reply_content.lower() or "responsibility" in reply_content.lower():
-        safety_block = "- Customer must complete a full robot backup prior to scheduling any maintenance actions."
-    elif has_safety:
-        safety_block = "- Follow standard operational safety parameters specified in the instruction manuals."
+    # If the model explicitly wrote an "Answer:" block at the end, isolate just that supreme line
+    answer_block_match = re.search(r'(?:answer):\s*(.*)', clean_reply, re.IGNORECASE)
+    if answer_block_match:
+        final_summary = answer_block_match.group(1).strip()
+    else:
+        # Otherwise, take the cleanest remaining line that isn't empty
+        lines = [line.strip() for line in clean_reply.split("\n") if len(line.strip()) > 10 and not line.startswith("**")]
+        final_summary = lines[-1] if lines else clean_reply
 
-    # Construct the final UI-compliant response payload
-    structured_reply = (
-        f"Summary: {reply_content}\n\n"
-        f"Safety Warnings:\n{safety_block}\n\n"
-        f"Step-by-step Guidance:\n1. Verify the specific robot model specifications from the logged documentation.\n2. Execute the required technical action precisely as stated: {reply_content}\n\n"
-        f"Reference:\n- {references_string}"
+    # Clean up leaking markdown tokens or leftover headers
+    final_summary = re.sub(r'\*\*Answer:\*\*\s*', '', final_summary, flags=re.IGNORECASE).strip()
+
+    # Thinking content telemetry packaging
+    thinking_content = (
+        f"Expanded Queries Used: {expanded_queries}\n\n"
+        f"Pipeline Trace: Filtered {len(all_candidate_chunks)} candidates down to {len(final_context_chunks)} graded chunks.\n\n"
+        f"Extracted Thought Fluff: {extracted_fluff}"
     )
 
-    # Fail-safe guardrail
-    if not reply_content or len(reply_content.strip()) < 5:
-        structured_reply = f"Summary: {raw_response}\n\nReference:\n- {references_string}"
-        thinking_content = "Implicit processing completed."
+    references_string = ", ".join(source_files) if source_files else "Local Knowledge Base"
+    
+    # Construct the final crystal-clean corporate response layout
+    structured_reply = (
+        f"Summary: {final_summary}\n\n"
+        f"Safety Warnings:\n- Always cross-reference the extracted values with primary physical engineering schematics before execution.\n\n"
+        f"Step-by-step Guidance:\n1. Open the referenced automated technical system manuals.\n2. Apply the validated specification parameters directly: {final_summary}\n\n"
+        f"Reference:\n- {references_string}"
+    )
             
     return {
         "reply": structured_reply,

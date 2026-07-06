@@ -1,6 +1,6 @@
 import docx
 from typing import Dict, Any
-from src.parsers.base import BaseParser
+from src.parser.base import BaseParser
 
 class DocxDocumentParser(BaseParser):
     def parse(self, file_path: str) -> Dict[str, Any]:

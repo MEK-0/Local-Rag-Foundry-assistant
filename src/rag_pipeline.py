@@ -1,20 +1,27 @@
 import re
 from src.llm_client import get_embedding, generate_chat_response
-from src.retrieval import retrieve_top_k
+# UPDATED: Import the advanced hybrid retrieval module instead of legacy naive search
+from src.retrieval.hybrid import hybrid_retrieve
 
 def process_chat_query(query: str) -> dict:
+    # 1. Generate local embedding vector for the user query
     query_embedding = get_embedding(query)
-    top_chunks = retrieve_top_k(query_embedding)
+    
+    # 2. RUN HIGH-GRADE HYBRID RETRIEVAL (BM25 + Dense fused via RRF)
+    # We pass both the raw query text and the embedding vector to the hybrid engine
+    top_chunks = hybrid_retrieve(query_text=query, query_embedding=query_embedding, top_k=4)
     
     if not top_chunks:
         return {
             "reply": "Summary: I couldn't find any relevant information in my knowledge base.",
-            "thinking": "No matching document chunks found in the database."
+            "thinking": "No matching document chunks found in the hybrid database layers."
         }
         
     context_text = ""
     source_files = set()
     for idx, chunk in enumerate(top_chunks):
+        # Enriched context logging with source file and explicit page numbers
+        context_text += f"--- Document {idx+1} (Source: {chunk['source_file']}, Page: {chunk['page_number']}) ---\n"
         context_text += f"{chunk['chunk_text']}\n\n"
         if "source_file" in chunk:
             source_files.add(chunk["source_file"])
@@ -38,7 +45,7 @@ ANSWER:"""
     # --- AUTOMATED BACKGROUND ENGINEERING ---
     # We let Python build the professional corporate layout instead of relying on the fragile LLM.
     
-    # Split thoughts if the model still starts with "Okay, let me figure this out..." or similar geveler blocks
+    # Split thoughts if the model still starts with "Okay, let me figure this out..." or similar blocks
     thinking_content = ""
     reply_content = raw_response
     

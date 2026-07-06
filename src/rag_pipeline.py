@@ -8,17 +8,11 @@ from src.retrieval.grader import grade_retrieved_chunks
 from src.retrieval.compression import compress_context_chunks
 
 def process_chat_query(query: str) -> dict:
-    """
-    Orchestrates the advanced offline RAG pipeline while generating 
-    granular telemetry tracking for the frontend observability panels.
-    """
     telemetry = {}
     
     # --- PHASE 1: QUERY REWRITING ---
     start_time = time.perf_counter()
     expanded_queries = rewrite_query(query)
-    # If the user toggles off advanced mode, we can bypass extension layers if needed,
-    # but to support the UI toggle natively, we track the full stack execution.
     telemetry["query_expansion_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
 
     # --- PHASE 2: EMBEDDING GENERATION ---
@@ -41,8 +35,8 @@ def process_chat_query(query: str) -> dict:
                 
     if not all_candidate_chunks:
         return {
-            "reply": "Summary: I couldn't find any relevant verification parameters in my current database.",
-            "thinking": f"Expanded Queries Used: {expanded_queries}\nNo chunks discovered during retrieval.",
+            "reply": "Summary: No relevant engineering parameters discovered in the local database tracks.",
+            "thinking": "No chunks found during cross-query extraction execution.",
             "telemetry": telemetry,
             "chunks_matrix": []
         }
@@ -52,7 +46,7 @@ def process_chat_query(query: str) -> dict:
     reranked_candidates = rerank_chunks(query=query, chunks=all_candidate_chunks, top_n=5)
     telemetry["rerank_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
     
-    # --- PHASE 5: RETRIEVAL GRADER & COMPRESSION ---
+    # --- PHASE 5: RETRIEVAL GRADER (De-duplication triggers here) ---
     start_time = time.perf_counter()
     graded_candidates = grade_retrieved_chunks(query=query, chunks=reranked_candidates)
     final_context_chunks = compress_context_chunks(query=query, chunks=graded_candidates)
@@ -60,8 +54,8 @@ def process_chat_query(query: str) -> dict:
     
     if not final_context_chunks:
         return {
-            "reply": "Summary: Documents were found but failed the semantic safety relevance thresholds.",
-            "thinking": "All candidate chunks were pruned during the grading phase.",
+            "reply": "Summary: Context mapping traces located, but they failed consistency security checks.",
+            "thinking": "All components failed semantic overlap grading filters.",
             "telemetry": telemetry,
             "chunks_matrix": []
         }
@@ -72,12 +66,11 @@ def process_chat_query(query: str) -> dict:
     chunks_matrix_payload = []
     
     for idx, chunk in enumerate(final_context_chunks):
-        context_text += f"--- Document {idx+1} (Source: {chunk['source_file']}, Page: {chunk['page_number']}) ---\n"
+        context_text += f"--- Context Block {idx+1} (Source: {chunk['source_file']}, Page: {chunk['page_number']}) ---\n"
         context_text += f"{chunk['chunk_text']}\n\n"
         if "source_file" in chunk:
             source_files.add(chunk["source_file"])
             
-        # Packaging explainability matrix for JavaScript extraction loops
         chunks_matrix_payload.append({
             "id": chunk["id"],
             "source": chunk["source_file"],
@@ -86,9 +79,14 @@ def process_chat_query(query: str) -> dict:
             "rrf_score": round(chunk.get("rrf_score", 0.0), 4)
         })
         
-    prompt = f"""You are an industrial automation expert. Answer the user's question directly, accurately, and concisely using ONLY the provided context. 
+    # CRITICAL: Highly explicit, non-conversational, list-preserving industrial prompt
+    prompt = f"""You are a precise industrial automation engineering assistant. 
+Answer the user's question directly, comprehensively, and accurately using ONLY the provided context blocks.
 
-Provide a direct answer focusing strictly on exact technical specifications, part names, or hours. Do not use conversational preambles.
+CRITICAL INSTRUCTIONS:
+1. If the answer involves a list of series, models, part numbers, or subsections, output EVERY single item exactly as it appears in the text. Do not summarize or use generic placeholders.
+2. Do not include introductory phrases like "Based on the provided context...", "According to the handbook...", or "Okay, let me figure this out...".
+3. Start your response directly with the answer data. Do not duplicate information.
 
 CONTEXT:
 {context_text}
@@ -103,39 +101,25 @@ ANSWER:"""
     raw_response = generate_chat_response(prompt)
     telemetry["generation_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
     
-    # Post-processing to clean up raw conversational leakages
+    # --- REFINED POST-PROCESSING ---
     clean_reply = raw_response.strip()
-    fluff_patterns = [
-        r"okay,\s*let.*?\.", r"first,\s*i\s*need.*?\.", r"let's\s*see.*?\.", 
-        r"the\s*user\s*is\s*asking.*?\.", r"i\s*need\s*to\s*confirm.*?\."
-    ]
-    for pattern in fluff_patterns:
-        clean_reply = re.sub(pattern, "", clean_reply, flags=re.IGNORECASE).strip()
+    
+    # Prune any accidental meta tag generation or leftover template artifacts
+    clean_reply = re.sub(r'^(Based on the context|According to the text|Answer:)\s*', '', clean_reply, flags=re.IGNORECASE).strip()
 
-    answer_block_match = re.search(r'(?:answer):\s*(.*)', clean_reply, re.IGNORECASE)
-    if answer_block_match:
-        final_summary = answer_block_match.group(1).strip()
-    else:
-        lines = [line.strip() for line in clean_reply.split("\n") if len(line.strip()) > 10 and not line.startswith("**")]
-        final_summary = lines[-1] if lines else clean_reply
-
-    final_summary = re.sub(r'\*\*Answer:\*\*\s*', '', final_summary, flags=re.IGNORECASE).strip()
     references_string = ", ".join(source_files) if source_files else "Local Knowledge Base"
     
-    # High-grade structured corporate response package
+    # Pure structured output format without artificial runbook text bloat
     structured_reply = (
-        f"Summary: {final_summary}\n\n"
-        f"Safety Warnings:\n- Always cross-reference extracted values with system schematics prior to maintenance scheduling.\n\n"
-        f"Step-by-step Guidance:\n1. Open the referenced automated technical systems engineering manual.\n2. Apply the verified parameter action directly: {final_summary}\n\n"
+        f"Summary:\n{clean_reply}\n\n"
         f"Reference:\n- {references_string}"
     )
 
-    # Dynamic explanation logs for the active UI accordion
     thinking_content = (
         f"Expanded Queries Loaded:\n" + "\n".join([f"↳ {q}" for q in expanded_queries]) + "\n\n"
         f"Pipeline Search Trace:\n"
-        f"✔ Hybrid multi-query search generated {len(all_candidate_chunks)} candidate partitions.\n"
-        f"✔ Cross-Encoder evaluated and preserved the top {len(final_context_chunks)} high-density fragments."
+        f"✔ Combined search tracks produced {len(all_candidate_chunks)} candidates.\n"
+        f"✔ Similarity filter and Cross-Encoder selected {len(final_context_chunks)} unique context frames."
     )
             
     return {

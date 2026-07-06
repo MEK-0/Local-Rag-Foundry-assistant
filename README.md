@@ -103,11 +103,11 @@ shared/team access, or when local hardware isn't available.
 Legend: [x] implemented · [~] in progress · [ ] planned (see roadmap for order)
 
 **Retrieval pipeline**
-- [~] Hybrid search (BM25 + dense, RRF fusion)
-- [ ] Cross-encoder re-ranking
-- [ ] Query rewriting / multi-query retrieval
-- [ ] Retrieval grader (Self-RAG style relevance check)
-- [ ] Context compression (sentence-window retrieval)
+- [x] Hybrid search (BM25 + dense, RRF fusion)
+- [x] Cross-encoder re-ranking
+- [x] Query rewriting / multi-query retrieval
+- [x] Retrieval grader (Self-RAG style relevance check)
+- [x] Context compression (sentence-window retrieval)
 
 **Ingestion**
 - [x] Markdown parsing + chunking

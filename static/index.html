@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="tr" class="dark">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -29,9 +29,8 @@
     </header>
 
     <section class="bg-[#131314] px-6 py-3 border-b border-[#2d2e30] flex gap-2 overflow-x-auto whitespace-nowrap scrollbar-none">
-        <button onclick="quickSearch('PLC Connection Fault')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>🔍</span> <span>PLC Connection Fault</span></button>
+        <button onclick="quickSearch('How do I clear a Conveyor Overload Fault?')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>🔍</span> <span>Conveyor Overload Fault</span></button>
         <button onclick="quickSearch('Low Pressure Warning')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>⚠️</span> <span>Low Pressure Valve</span></button>
-        <button onclick="quickSearch('Conveyor Overload Reset')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>⚡</span> <span>Conveyor Overload</span></button>
         <button onclick="quickSearch('Robot Calibration Checklist')" class="bg-[#1e1f20] hover:bg-[#2d2e30] border border-[#3e4042] text-xs px-3 py-1.5 rounded-full flex items-center space-x-1 cursor-pointer transition"><span>📋</span> <span>Robot Axis Drift</span></button>
     </section>
 
@@ -52,7 +51,7 @@
 
     <div class="border-t border-[#2d2e30] p-4 bg-[#131314]">
         <form id="chat-form" class="max-w-5xl mx-auto flex items-center space-x-3 bg-[#1e1f20] rounded-2xl border border-[#2d2e30] p-2 focus-within:border-blue-500/50 transition">
-            <button type="button" onclick="toggleModal(true)" class="p-2 hover:bg-[#2d2e30] rounded-xl text-gray-400 transition cursor-pointer" title="Doküman Yükle">
+            <button type="button" onclick="toggleModal(true)" class="p-2 hover:bg-[#2d2e30] rounded-xl text-gray-400 transition cursor-pointer" title="Upload Document">
                 📁
             </button>
             <input type="text" id="user-input" placeholder="Describe the automation issue or ask a question..." autocomplete="off"
@@ -70,10 +69,10 @@
                 <h2 class="text-md font-bold text-gray-200 flex items-center gap-2">📄 Upload Document</h2>
                 <button onclick="toggleModal(false)" class="text-gray-500 hover:text-gray-300 text-lg cursor-pointer">&times;</button>
             </div>
-            <p class="text-xs text-gray-400">Add a <span class="font-mono text-blue-400">.md</span> file to the local knowledge base. It will be chunked and indexed immediately into SQLite.</p>
+            <p class="text-xs text-gray-400">Add enterprise manual files to the local knowledge base. Chunks and structural tokens are indexed immediately into SQLite.</p>
             
-            <div class="border-2 border-dashed border-[#3e4042] hover:border-blue-500/50 rounded-xl p-8 text-center bg-[#131314] cursor-pointer transition relative group" onclick="document.getElementById('file-field').click()">
-                <input type="file" id="file-field" accept=".md" class="hidden" onchange="handleFileSelect(this)">
+            <div class="border-2 border-dashed border-[#3e4042] hover:border-blue-500/50 rounded-xl p-8 text-center bg-[#131314] cursor-pointer transition relative group" onclick="document.getElementById('file-input').click()">
+                <input type="file" id="file-input" accept=".md,.pdf,.docx,.xlsx,.xls,.csv" onchange="handleFileSelect(this)" class="hidden"/>
                 <div class="text-3xl mb-2">📁</div>
                 <p class="text-sm text-gray-300 group-hover:text-blue-400 transition" id="upload-status-text">Drop file here or <span class="underline">click to browse</span></p>
             </div>
@@ -143,33 +142,36 @@
             if (!isAi) {
                 msgDiv.innerHTML = `<div class="inline-block bg-blue-600/20 border border-blue-500/30 rounded-2xl px-4 py-2.5 text-sm text-left text-gray-200">${text}</div>`;
             } else {
-                // Görseldeki (03-chat-response.png) gibi başlıkları turuncu yapmak için regex ile stil giydiriyoruz
-                let formattedText = text
+                // FIXED: Replaced .strip() with valid JavaScript .trim() and stripped leaking structural tags
+                let cleanText = (text || "").replace(/\[THINKING\]|\[\/THINKING\]|\[END\]|\[thinking\]|\[\/thinking\]/gi, '').trim();
+
+                // Advanced Regex Replacer to convert corporate template headers into high-visibility orange styles
+                let formattedText = cleanText
                     .replace(/Summary:/g, '<strong class="text-orange-400 block mb-1">Summary:</strong>')
                     .replace(/Safety Warnings\s*:/g, '<span class="inline-block bg-orange-500/10 border border-orange-500/20 text-orange-400 font-bold px-2 py-0.5 rounded mb-2">Safety Warnings :</span>')
                     .replace(/Step-by-step Guidance:/g, '<strong class="text-orange-400 block mt-4 mb-2">Step-by-step Guidance:</strong>')
                     .replace(/Reference:/g, '<strong class="text-orange-400 block mt-4 mb-1">Reference:</strong>');
 
                 let thinkingHtml = "";
-                if (thinkingText) {
+                // Render the local thoughts box container only if valid analytical context data is populated
+                if (thinkingText && thinkingText.trim().length > 0) {
                     thinkingHtml = `
                         <details class="bg-[#1e1f20] border border-[#2d2e30] rounded-xl p-2 mb-2 text-xs text-gray-400 cursor-pointer group">
                             <summary class="font-medium select-none text-gray-500 group-open:text-gray-300">💡 Thinking Process (Click to expand)</summary>
                             <div class="mt-2 pl-3 border-l-2 border-blue-500/40 whitespace-pre-line font-mono leading-relaxed text-gray-400 bg-[#131314] p-2 rounded-lg">${thinkingText}</div>
                         </details>
                     `;
-            }
-            msgDiv.innerHTML = `
-               ${thinkingHtml}
-               <div class="bg-[#1e1f20] border border-[#2d2e30] rounded-2xl p-5 text-sm leading-relaxed text-gray-200 shadow-md">
-                    <div class="max-w-none text-gray-300 whitespace-pre-line space-y-1">${formattedText}</div>
-                </div>
-            `;
+                }
+                msgDiv.innerHTML = `
+                    ${thinkingHtml}
+                    <div class="bg-[#1e1f20] border border-[#2d2e30] rounded-2xl p-5 text-sm leading-relaxed text-gray-200 shadow-md">
+                        <div class="max-w-none text-gray-300 whitespace-pre-line space-y-1">${formattedText}</div>
+                    </div>
+                `;
             }
             chatContainer.appendChild(msgDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
-
 
         function createThinkingIndicator() {
             const indicator = document.createElement('div');

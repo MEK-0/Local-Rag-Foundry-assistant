@@ -119,7 +119,7 @@ Legend: [x] implemented · [~] in progress · [ ] planned (see roadmap for order
 
 **UI / Observability**
 - [x] Basic chat interface
-- [ ] Per-stage latency trace (embedding / retrieval / rerank / generation)
+- [x] Per-stage latency trace (embedding / retrieval / rerank / generation)
 - [ ] Explainability panel (per-chunk score breakdown)
 - [ ] Source citation viewer
 - [ ] Naive-vs-Advanced comparison toggle

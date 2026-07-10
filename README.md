@@ -52,19 +52,20 @@ flowchart TB
 
     subgraph Ingestion["Ingestion Pipeline (src/parsers/, src/chunking.py)"]
         PARSE["Format parsers\n(Markdown / PDF / DOCX / XLSX)"]
-        CHUNK["Semantic chunker\n+ metadata (source, page, chunk_index)"]
+        CHUNK["Hierarchical Chunker\nChild windows relational to Parent trees"]
     end
 
-    subgraph Retrieval["Retrieval Pipeline (src/retrieval/)"]
-        QR["Query rewriter\n(expansion / HyDE)"]
+    subgraph Retrieval["Agentic Retrieval Pipeline (src/retrieval/)"]
+        QR["Agentic Sub-query Router\n(Task Decomposition Engine)"]
         HYB["Hybrid search\n(BM25 + dense, RRF fusion)"]
         RR["Cross-encoder re-ranker"]
-        GR["Retrieval grader\n(relevance check -> fallback)"]
+        GR["Retrieval grader\n(Jaccard Duplicate Filter)"]
+        COMP["Sentence-Window Comp\n+ Parent Context Linker"]
     end
 
     subgraph Local["Local mode"]
-        SQL[("SQLite\ndata/rag.db")]
-        FL["Foundry Local\n(chat + embedding models, on-device)"]
+        SQL[("SQLite Relational DB\ndata/rag.db")]
+        FL["Foundry Local\n(chat + embedding models, qwen3-embedding-0.6b)"]
     end
 
     subgraph Cloud["Cloud mode (optional, Azure)"]
@@ -78,11 +79,13 @@ flowchart TB
 
     UI --> API
     PARSE --> CHUNK --> SQL
-    API --> QR --> HYB --> RR --> GR --> API
+    API --> QR
+    QR -->|Loop / Scratchpad| HYB --> RR --> GR --> COMP --> QR
+    QR -->|Final Synthesized Context| API
     HYB -->|MODE=local| SQL
     HYB -->|MODE=cloud| AIS
-    GR --> FL
-    GR -->|MODE=cloud| AOAI
+    COMP --> FL
+    COMP -->|MODE=cloud| AOAI
     BLOB -.sync.-> SQL
     BLOB -.sync.-> AIS
     API -.-> TEL
@@ -108,9 +111,13 @@ Legend: [x] implemented · [~] in progress · [ ] planned (see roadmap for order
 - [x] Query rewriting / multi-query retrieval
 - [x] Retrieval grader (Self-RAG style relevance check)
 - [x] Context compression (sentence-window retrieval)
+- [~] Hierarchical Parent-Child context fetching and text structures
+- [~] Agentic Multi-Hop synthesis (sub-query compilation task decomposition)
+
 
 **Ingestion**
 - [x] Markdown parsing + chunking
+- [~] Hierarchical structural parsing (Relational header/sub-header linking)
 - [x] Semantic chunking (topic-boundary based, replacing fixed-size)
 - [x] PDF parser (`pdfplumber`)
 - [x] DOCX parser (`python-docx`)
@@ -120,9 +127,9 @@ Legend: [x] implemented · [~] in progress · [ ] planned (see roadmap for order
 **UI / Observability**
 - [x] Basic chat interface
 - [x] Per-stage latency trace (embedding / retrieval / rerank / generation)
-- [ ] Explainability panel (per-chunk score breakdown)
+- [x] Explainability panel (per-chunk score breakdown)
 - [ ] Source citation viewer
-- [ ] Naive-vs-Advanced comparison toggle
+- [x] Naive-vs-Advanced comparison toggle
 
 **Engineering**
 - [x] Local/cloud mode switch via config
@@ -177,7 +184,8 @@ Full detail, rationale, and day-by-day build order for every item above:
 │   │   ├── hybrid.py             BM25 + dense fusion (RRF)
 │   │   ├── reranker.py           Cross-encoder re-ranking
 │   │   ├── grader.py             Retrieval relevance grading
-│   │   └── query_rewrite.py      Query expansion / HyDE
+│   │   |── query_rewrite.py      Query expansion / HyDE
+│   │   └── compression.py Sentence-window culling & Parent context mapping
 │   ├── llm_client.py           Foundry Local + Azure OpenAI client wrappers
 │   ├── rag_pipeline.py         Orchestrates parsing -> retrieval -> generation
 │   ├── azure_search.py         Azure AI Search index + query helpers

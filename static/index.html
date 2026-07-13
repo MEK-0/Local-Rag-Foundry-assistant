@@ -6,12 +6,11 @@
     <title>Industrial Automation Support Agent</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <style>
-        /* Modern Scrollbar Styling for Gemini Layout */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #131314; }
         ::-webkit-scrollbar-thumb { background: #2d2e30; border-radius: 9999px; }
         ::-webkit-scrollbar-thumb:hover { background: #3e4042; }
-        
+
         .typing-dot { animation: blink 1.4s infinite both; }
         .typing-dot:nth-child(2) { animation-delay: .2s; }
         .typing-dot:nth-child(3) { animation-delay: .4s; }
@@ -38,7 +37,7 @@
     </header>
 
     <div class="flex flex-1 overflow-hidden w-full relative">
-        
+
         <aside class="w-64 border-r border-[#2d2e30] bg-[#1e1f20] flex flex-col shrink-0 overflow-hidden select-none">
             <div class="p-4 border-b border-[#2d2e30] space-y-2">
                 <div class="flex justify-between items-center">
@@ -46,27 +45,13 @@
                     <span class="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20 font-mono">SQLite</span>
                 </div>
                 <div class="space-y-1.5 max-h-48 overflow-y-auto pt-1 pr-1" id="knowledge-list">
-                    <div class="flex items-center justify-between text-xs bg-[#131314] border border-[#2d2e30] p-2 rounded-lg group hover:border-[#3e4042] transition">
-                        <span class="truncate text-gray-300 font-mono" title="ASDAVS-SP002A_Robot_Periodic_Maintenance_Specification_July_2023.pdf">📄 ASDAVS-SP002A...pdf</span>
-                        <span class="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 rounded shrink-0">Indexed</span>
-                    </div>
-                    <div class="flex items-center justify-between text-xs bg-[#131314] border border-[#2d2e30] p-2 rounded-lg group hover:border-[#3e4042] transition">
-                        <span class="truncate text-gray-300 font-mono" title="CNC_Maintenance.md">📄 CNC_Maintenance.md</span>
-                        <span class="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 rounded shrink-0">Indexed</span>
-                    </div>
+                    <p class="text-[10px] text-gray-600 italic text-center py-4">Loading indexed documents...</p>
                 </div>
             </div>
 
             <div class="flex-1 p-4 flex flex-col overflow-hidden">
                 <h2 class="text-xs font-bold text-gray-400 tracking-wider uppercase mb-2">Recent Logs</h2>
-                <div class="flex-1 overflow-y-auto space-y-1.5 pr-1 text-xs text-gray-400" id="history-list">
-                    <div class="p-2.5 hover:bg-[#131314] rounded-lg cursor-pointer transition border border-transparent hover:border-[#2d2e30] truncate text-gray-300">
-                        💬 SCARA Robot Grease Timing
-                    </div>
-                    <div class="p-2.5 hover:bg-[#131314] rounded-lg cursor-pointer transition border border-transparent hover:border-[#2d2e30] truncate text-gray-300">
-                        💬 Conveyor Overload Recovery
-                    </div>
-                </div>
+                <div class="flex-1 overflow-y-auto space-y-1.5 pr-1 text-xs text-gray-400" id="history-list"></div>
             </div>
         </aside>
 
@@ -116,12 +101,15 @@
             <div class="p-4 border-b border-[#2d2e30]">
                 <h2 class="text-xs font-bold text-gray-400 tracking-wider uppercase flex items-center gap-1.5">📊 Pipeline Telemetry</h2>
             </div>
-            
+
             <div class="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-xs text-gray-400">
                 <div class="space-y-2 bg-[#131314] p-3 rounded-xl border border-[#2d2e30]">
                     <div class="text-gray-300 font-bold border-b border-[#2d2e30] pb-1.5 mb-1.5 text-[11px] flex justify-between items-center">
                         <span>LATENCY TRACE</span>
-                        <span class="text-blue-400 text-[10px]">Real-time</span>
+                        <span class="text-blue-400 text-[10px]">Last Query</span>
+                    </div>
+                    <div class="flex justify-between items-center text-[11px]" id="trace-expansion">
+                        <span>↳ Query Expansion:</span> <span class="text-gray-500">--</span>
                     </div>
                     <div class="flex justify-between items-center text-[11px]" id="trace-embedding">
                         <span>↳ Vector Embedding:</span> <span class="text-gray-500">--</span>
@@ -132,12 +120,15 @@
                     <div class="flex justify-between items-center text-[11px]" id="trace-rerank">
                         <span>↳ Cross-Encoder Rank:</span> <span class="text-gray-500">--</span>
                     </div>
+                    <div class="flex justify-between items-center text-[11px]" id="trace-compression">
+                        <span>↳ Grade + Compress:</span> <span class="text-gray-500">--</span>
+                    </div>
                     <div class="flex justify-between items-center text-[11px]" id="trace-generation">
                         <span>↳ Token Generation:</span> <span class="text-gray-500">--</span>
                     </div>
                 </div>
 
-                <div class="space-y-2 bg-[#131314] p-3 rounded-xl border border-[#2d2e30] flex flex-col h-64">
+                <div class="space-y-2 bg-[#131314] p-3 rounded-xl border border-[#2d2e30] flex flex-col h-72">
                     <div class="text-gray-300 font-bold border-b border-[#2d2e30] pb-1.5 text-[11px]">EXPLAINABILITY MATRIX</div>
                     <div class="flex-1 overflow-y-auto space-y-2 pr-1 pt-1" id="explainability-dump">
                         <p class="text-[10px] text-gray-600 text-center pt-16 italic">No query loaded into active telemetry pipelines.</p>
@@ -154,7 +145,7 @@
                 <button onclick="toggleModal(false)" class="text-gray-500 hover:text-gray-300 text-lg cursor-pointer transition">&times;</button>
             </div>
             <p class="text-xs text-gray-400 leading-relaxed">Add structural documentation sheets to the local SQLite knowledge store. Character tokens and spatial vectors are calculated instantly on the client core device.</p>
-            
+
             <div class="border-2 border-dashed border-[#3e4042] hover:border-blue-500/40 rounded-xl p-8 text-center bg-[#131314] cursor-pointer transition relative group" onclick="document.getElementById('file-input').click()">
                 <input type="file" id="file-input" accept=".md,.pdf,.docx,.xlsx,.xls,.csv" onchange="handleFileSelect(this)" class="hidden"/>
                 <div class="text-3xl mb-2 group-hover:scale-110 transition-transform">📁</div>
@@ -174,6 +165,32 @@
         const sendBtn = document.getElementById('send-btn');
         const advancedModeInput = document.getElementById('advanced-mode');
         let selectedFile = null;
+
+        // --- Knowledge base list, loaded from the real backend registry ---
+        async function loadDocumentList() {
+            const list = document.getElementById('knowledge-list');
+            try {
+                const response = await fetch('/documents');
+                const data = await response.json();
+                const docs = data.documents || [];
+
+                if (docs.length === 0) {
+                    list.innerHTML = `<p class="text-[10px] text-gray-600 italic text-center py-4">No documents indexed yet.</p>`;
+                    return;
+                }
+
+                list.innerHTML = docs.map(doc => {
+                    const shortName = doc.filename.length > 22 ? doc.filename.substring(0, 19) + '...' : doc.filename;
+                    return `
+                        <div class="flex items-center justify-between text-xs bg-[#131314] border border-[#2d2e30] p-2 rounded-lg group hover:border-[#3e4042] transition">
+                            <span class="truncate text-gray-300 font-mono" title="${doc.filename}">📄 ${shortName}</span>
+                            <span class="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 rounded shrink-0">${doc.chunk_count} chunks</span>
+                        </div>`;
+                }).join('');
+            } catch (err) {
+                list.innerHTML = `<p class="text-[10px] text-red-500 italic text-center py-4">Could not load document list.</p>`;
+            }
+        }
 
         function toggleModal(show) {
             const modal = document.getElementById('upload-modal');
@@ -206,13 +223,9 @@
                 const data = await response.json();
                 if(response.ok) {
                     alert(data.message);
-                    
-                    const list = document.getElementById('knowledge-list');
-                    const item = document.createElement('div');
-                    item.className = "flex items-center justify-between text-xs bg-[#131314] border border-blue-500/20 p-2 rounded-lg group transition animate-fade-in";
-                    item.innerHTML = `<span class="truncate text-gray-200 font-mono">📄 ${selectedFile.name}</span><span class="text-[9px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1 rounded shrink-0">Indexed</span>`;
-                    list.prepend(item);
-
+                    // Re-fetch the real registry instead of guessing what changed -
+                    // handles the "unchanged, skipped" case correctly too
+                    await loadDocumentList();
                     toggleModal(false);
                 } else {
                     alert("Ingestion Fault: " + data.detail);
@@ -227,42 +240,60 @@
             chatForm.requestSubmit();
         }
 
-        function updateTelemetryMirror(thinkingText) {
-            document.getElementById('trace-embedding').querySelector('span:nth-child(2)').innerText = "14ms";
-            document.getElementById('trace-retrieval').querySelector('span:nth-child(2)').innerText = "42ms";
-            document.getElementById('trace-rerank').querySelector('span:nth-child(2)').innerText = "112ms";
-            document.getElementById('trace-generation').querySelector('span:nth-child(2)').innerText = "1.1s";
+        function formatMs(value) {
+            if (value === undefined || value === null) return "--";
+            if (value >= 1000) return (value / 1000).toFixed(2) + "s";
+            return value + "ms";
+        }
+
+        // Renders the real telemetry dict and chunks_matrix returned by /chat,
+        // instead of hardcoded placeholder numbers.
+        function updateTelemetryMirror(telemetry, chunksMatrix) {
+            telemetry = telemetry || {};
+            document.getElementById('trace-expansion').querySelector('span:nth-child(2)').innerText = formatMs(telemetry.query_expansion_time_ms);
+            document.getElementById('trace-embedding').querySelector('span:nth-child(2)').innerText = formatMs(telemetry.embedding_time_ms);
+            document.getElementById('trace-retrieval').querySelector('span:nth-child(2)').innerText = formatMs(telemetry.retrieval_time_ms);
+            document.getElementById('trace-rerank').querySelector('span:nth-child(2)').innerText = formatMs(telemetry.rerank_time_ms);
+            document.getElementById('trace-compression').querySelector('span:nth-child(2)').innerText = formatMs(telemetry.culling_and_compression_time_ms);
+            document.getElementById('trace-generation').querySelector('span:nth-child(2)').innerText = formatMs(telemetry.generation_time_ms);
 
             const dump = document.getElementById('explainability-dump');
             dump.innerHTML = "";
 
-            if (!thinkingText) return;
-
-            let matchFragments = thinkingText.match(/Filtered (\d+) candidates down to (\d+) graded chunks/i);
-            let candidatesCount = matchFragments ? matchFragments[1] : "6";
-            let finalCount = matchFragments ? matchFragments[2] : "5";
+            if (!chunksMatrix || chunksMatrix.length === 0) {
+                dump.innerHTML = `<p class="text-[10px] text-gray-600 text-center pt-16 italic">No chunks were used for this answer.</p>`;
+                return;
+            }
 
             const card = document.createElement('div');
             card.className = "space-y-2 bg-[#131314] text-[11px] font-mono leading-relaxed select-text";
+
+            const rows = chunksMatrix.map((chunk, idx) => `
+                <div class="border border-[#2d2e30] rounded-lg p-2 space-y-1 bg-[#1e1f20]">
+                    <div class="flex justify-between items-center">
+                        <span class="text-blue-400 font-bold">#${idx + 1} · ${chunk.node_type || 'paragraph'}</span>
+                        <span class="text-emerald-400">rerank ${chunk.rerank_score ?? '--'}</span>
+                    </div>
+                    <div class="text-gray-400 truncate" title="${chunk.section || ''}">📁 ${chunk.source || 'unknown'} · p.${chunk.page ?? '?'}</div>
+                    <div class="text-gray-500 truncate" title="${chunk.section || ''}">🧭 ${chunk.section || 'Unknown Section'}</div>
+                </div>
+            `).join('');
+
             card.innerHTML = `
                 <div class="text-[10px] text-blue-400 border-b border-[#2d2e30] pb-1">RETRIEVAL FILTER TRACE</div>
-                <div class="flex justify-between"><span>Total Multi-Query Hits:</span><span class="text-gray-300 font-bold">${candidatesCount} chunks</span></div>
-                <div class="flex justify-between"><span>CrossEncoder Survival:</span><span class="text-emerald-400 font-bold">${finalCount} chunks</span></div>
-                <div class="text-[10px] text-orange-400 border-b border-[#2d2e30] pt-2 pb-1">Synonym Channels Loaded</div>
-                <div class="text-[10px] text-gray-500 bg-[#1e1f20] p-1.5 rounded-lg max-h-24 overflow-y-auto">
-                    ✔ grease → lubricant<br>✔ spindle → axis structure<br>✔ scara → robotic arm
-                </div>
+                <div class="flex justify-between"><span>Chunks Injected Into Context:</span><span class="text-gray-300 font-bold">${chunksMatrix.length}</span></div>
+                <div class="space-y-1.5 pt-1">${rows}</div>
             `;
             dump.appendChild(card);
         }
 
-        function appendMessage(text, thinkingText = "", isAi = false) {
+        function appendMessage(text, thinkingText = "", isAi = false, telemetry = null, chunksMatrix = null) {
             const msgDiv = document.createElement('div');
             msgDiv.className = isAi ? "max-w-3xl space-y-2 animate-fade-in" : "max-w-xl ml-auto text-right";
-    
+
             if (!isAi) {
                 msgDiv.innerHTML = `<div class="inline-block bg-blue-600/10 border border-blue-500/20 rounded-2xl px-4 py-2.5 text-sm text-left text-gray-200 select-text">${text}</div>`;
-                
+
                 const historyList = document.getElementById('history-list');
                 const hItem = document.createElement('div');
                 hItem.className = "p-2.5 hover:bg-[#131314] rounded-lg cursor-pointer transition border border-transparent hover:border-[#2d2e30] truncate text-gray-300";
@@ -278,7 +309,6 @@
                     .replace(/Reference:/g, '<strong class="text-blue-400 font-mono text-xs tracking-wide uppercase block mt-4 mb-1">🔗 SYSTEM TRACK CITATIONS</strong>');
 
                 let thinkingHtml = "";
-                // RENDER ACCORDION: Put the internal analytical details back into the chat view
                 if (thinkingText && thinkingText.trim().length > 0) {
                     thinkingHtml = `
                         <details class="bg-[#1e1f20] border border-[#2d2e30] rounded-xl p-3 mb-2 text-xs text-gray-400 cursor-pointer group select-text">
@@ -294,8 +324,8 @@
                         <div class="max-w-none text-gray-300 whitespace-pre-line space-y-1">${formattedText}</div>
                     </div>
                 `;
-                
-                updateTelemetryMirror(thinkingText);
+
+                updateTelemetryMirror(telemetry, chunksMatrix);
             }
             chatContainer.appendChild(msgDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -325,14 +355,14 @@
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         message: message,
                         advanced_mode: advancedModeInput.checked
                     })
                 });
                 const data = await response.json();
                 document.getElementById('thinking-indicator')?.remove();
-                appendMessage(data.reply, data.thinking, true);
+                appendMessage(data.reply, data.thinking, true, data.telemetry, data.chunks_matrix);
             } catch (error) {
                 document.getElementById('thinking-indicator')?.remove();
                 appendMessage("Error communicating with local server pipelines.", "", true);
@@ -342,6 +372,9 @@
                 userInput.focus();
             }
         });
+
+        // Load the real indexed-document list on page load
+        loadDocumentList();
     </script>
 </body>
 </html>

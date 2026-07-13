@@ -1,4 +1,3 @@
-import re
 import time
 from src.llm_client import get_embedding, generate_chat_response
 from src.retrieval.query_rewriter import rewrite_query
@@ -7,195 +6,193 @@ from src.retrieval.reranker import rerank_chunks
 from src.retrieval.grader import grade_retrieved_chunks
 from src.retrieval.compression import compress_context_chunks
 
+
 def process_chat_query(query: str, advanced_mode: bool = True) -> dict:
     """
-    Advanced Multi-Hop RAG Pipeline optimized for multi-document synthesis,
-    tabular data extraction, and deep safety metric profiling.
+    Multi-hop RAG pipeline: query expansion -> hybrid retrieval -> rerank ->
+    grade -> compress (+ parent expansion) -> generate.
+
+    No hardcoded/canned answers anywhere in this pipeline. If retrieval or
+    generation fails, the pipeline reports that honestly instead of
+    returning a pre-written answer — a wrong-but-confident canned response
+    is worse than an explicit "insufficient context" reply, because it
+    fails silently on any query the fallback list wasn't written for.
     """
     telemetry = {}
     query_lower = query.lower()
-    
-    # --- PHASE 1: QUERY EXPANSION (STATELESS) ---
+
+    # --- PHASE 1: Query expansion ---
     start_time = time.perf_counter()
     expanded_queries = rewrite_query(query) if advanced_mode else [query]
     telemetry["query_expansion_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
 
-    # --- PHASE 2: LOCAL EMBEDDING PRODUCTION ---
+    # --- PHASE 2: Embedding ---
     start_time = time.perf_counter()
     query_embedding = get_embedding(query)
     telemetry["embedding_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
-    
-    # --- PHASE 3: EXPANDED MULTI-TRACK RETRIEVAL (Recall Boosted for Multi-Hop) ---
+
+    # --- PHASE 3: Multi-track hybrid retrieval ---
     start_time = time.perf_counter()
     all_candidate_chunks = []
     seen_chunk_ids = set()
-    
-    # Boosted top_k from 5 to 8 to gather highly scattered information blocks (e.g., smartPAD, Responsibilities)
+
     search_width = 8 if advanced_mode else 4
     for q_track in expanded_queries:
-        retrieved_candidates = hybrid_retrieve(query_text=q_track, query_embedding=query_embedding, top_k=search_width)
-        for chunk in retrieved_candidates:
+        retrieved = hybrid_retrieve(query_text=q_track, query_embedding=query_embedding, top_k=search_width)
+        for chunk in retrieved:
             if chunk["id"] not in seen_chunk_ids:
                 seen_chunk_ids.add(chunk["id"])
                 all_candidate_chunks.append(chunk)
     telemetry["retrieval_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
-                
+
     if not all_candidate_chunks:
-        return {
-            "reply": "No valid technical data sequences located in the active knowledge base.",
-            "thinking": "Retrieval matrix execution yielded 0 valid chunks across search trajectories.",
-            "telemetry": telemetry,
-            "chunks_matrix": []
-        }
-        
-    # --- PHASE 4 & 5: DYNAMIC CONTEXT GATING & COMPRESSION ---
+        return _empty_result(
+            reply="No relevant content was found in the knowledge base for this question.",
+            thinking="Retrieval returned 0 candidates across all expanded query tracks.",
+            telemetry=telemetry,
+        )
+
+    # --- PHASE 4: Rerank -> grade -> compress (+ parent expansion) ---
+    top_score = 0.0
     if not advanced_mode:
         final_context_chunks = all_candidate_chunks[:2]
         telemetry["rerank_time_ms"] = 0.0
         telemetry["culling_and_compression_time_ms"] = 0.0
     else:
         start_time = time.perf_counter()
-        # Expanded top_n to 6 to evaluate deep cross-attention on complex long questions
-        reranked_candidates = rerank_chunks(query=query, chunks=all_candidate_chunks, top_n=6)
+        reranked = rerank_chunks(query=query, chunks=all_candidate_chunks, top_n=6)
         telemetry["rerank_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
-        
+
         start_time = time.perf_counter()
-        graded_candidates = grade_retrieved_chunks(query=query, chunks=reranked_candidates)
-        compressed_candidates = compress_context_chunks(query=query, chunks=graded_candidates)
-        
-        # LOWERED CONFIDENCE THRESHOLD STRATEGY: Adaptive allocation based on top cross-encoder hits
-        top_score = compressed_candidates[0].get("rerank_score", 0.0) if compressed_candidates else 0.0
-        
-        # Lowered threshold limits to allow more chunks inside the context when dealing with complex listings
+        graded = grade_retrieved_chunks(query=query, chunks=reranked)
+        compressed = compress_context_chunks(query=query, chunks=graded)
+
+        top_score = compressed[0].get("rerank_score", 0.0) if compressed else 0.0
+
+        # Adaptive chunk budget: fewer, higher-confidence chunks when the
+        # top hit is very strong; more chunks when the signal is weak/spread
         if top_score > 1.2:
             chunk_limit = 2
-        elif top_score > 0.65: # Relaxed boundary to capture multi-hop shards cleanly
+        elif top_score > 0.65:
             chunk_limit = 4
         else:
             chunk_limit = 5
-            
-        final_context_chunks = compressed_candidates[:chunk_limit]
-        telemetry["culling_and_compression_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
-    
-    if not final_context_chunks:
-        return {
-            "reply": "Context mapping traces located, but they failed data layout validation.",
-            "thinking": "All candidate fragments pruned during deduplication or semantic grading.",
-            "telemetry": telemetry,
-            "chunks_matrix": []
-        }
 
-    # --- PHASE 6: CONTEXT MATRIX PACKAGING WITH METADATA ANCHORS ---
+        final_context_chunks = compressed[:chunk_limit]
+        telemetry["culling_and_compression_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
+
+    if not final_context_chunks:
+        return _empty_result(
+            reply="Relevant chunks were found but none passed the relevance grading step.",
+            thinking="All candidates were pruned during grading/compression.",
+            telemetry=telemetry,
+        )
+
+    # --- PHASE 5: Context packaging (heading/node-type aware) ---
     context_text = ""
     source_files = set()
     chunks_matrix_payload = []
-    
+
     for idx, chunk in enumerate(final_context_chunks):
-        # Injecting clean tracking metadata directly into the context window to assist section discrimination
-        context_text += f"--- START DOCUMENT CHUNK {idx+1} (Source: {chunk['source_file']}, Page: {chunk['page_number']}) ---\n"
+        heading = chunk.get("expanded_heading") or chunk.get("heading_path") or "Unknown Section"
+        node_type = chunk.get("node_type", "paragraph")
+        context_text += (
+            f"--- CHUNK {idx + 1} "
+            f"(Source: {chunk['source_file']}, Page: {chunk['page_number']}, "
+            f"Type: {node_type}, Section: {heading}) ---\n"
+        )
         context_text += f"{chunk['chunk_text'].strip()}\n"
-        context_text += f"--- END DOCUMENT CHUNK {idx+1} ---\n\n"
-        
-        if "source_file" in chunk:
-            source_files.add(chunk["source_file"])
-            
+        context_text += f"--- END CHUNK {idx + 1} ---\n\n"
+
+        source_files.add(chunk.get("source_file", "unknown"))
         chunks_matrix_payload.append({
             "id": chunk["id"],
             "source": chunk["source_file"],
             "page": chunk["page_number"],
+            "section": heading,
+            "node_type": node_type,
             "rerank_score": round(chunk.get("rerank_score", 0.0), 3),
-            "rrf_score": round(chunk.get("rrf_score", 0.0), 4)
+            "rrf_score": round(chunk.get("rrf_score", 0.0), 4),
         })
 
-    # HIGH-CAPACITY EXTRACTION PROMPT: Eliminates prose filler, blocks external jargon, enforces table/list maps
-    prompt = f"""You are an industrial automation data extraction runtime. Your task is to output a comprehensive, structured technical answer using ONLY the provided document chunks.
+    prompt = f"""You are a technical documentation assistant. Answer the question using ONLY the information in the document chunks below.
 
-CRITICAL INSTRUCTIONS:
-1. If the question asks for a list, table comparison, or multi-part responsibilities, synthesize facts across ALL blocks to build an exhaustive response. Do not truncate.
-2. Rely strictly on the explicit vocabulary of the text. Do not add decorative engineering jargon or speculative definitions.
-3. Start directly with the data payload. No conversational introduction or rule-quoting text.
+INSTRUCTIONS:
+1. If the question asks for a list, table comparison, or multi-part information, synthesize facts across ALL chunks into a complete answer. Do not truncate.
+2. Use only the vocabulary and facts present in the text. Do not add information that is not stated.
+3. If the chunks do not contain enough information to answer, say so explicitly instead of guessing.
+4. Answer directly. No preamble, no restating the question, no meta-commentary about the instructions.
+5. Do NOT describe or narrate the chunks one by one (e.g. "In the first chunk..." / "In the Nth document chunk..."). State the final answer directly, as a technician would.
 
 DOCUMENT CHUNKS:
 {context_text.strip()}
 
-USER QUESTION:
+QUESTION:
 {query}
 
-TECHNICAL EXTRACTED ANSWER:"""
+ANSWER:"""
 
-    # --- PHASE 7: INFERENCE ENGINE EXECUTION ---
+    # --- PHASE 6: Generation ---
     start_time = time.perf_counter()
     raw_response = generate_chat_response(prompt)
     telemetry["generation_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
-    
-    is_broken_generation = "error during generation" in raw_response.lower() or len(raw_response.strip()) < 5
-    
-    if not is_broken_generation:
-        raw_lines = raw_response.strip().split("\n")
-        sanitized_lines = []
-        
-        for line in raw_lines:
-            line_clean = line.strip()
-            if not line_clean:
-                continue
-                
-            # Filter structural leakages without over-stripping actual data payload arrays
-            if any(leak in line_clean.lower() for leak in [
-                "rule states", "critical rule", "the user", "provided document", 
-                "look at the", "let's see", "context data"
-            ]):
-                continue
-                
-            # Loop Breaker Guardband
-            words = line_clean.split()
-            if len(words) > 5 and len(set(words)) < (len(words) / 1.8):
-                continue  
-                
-            sanitized_lines.append(line_clean)
-            
-        final_summary = "\n".join(sanitized_lines).strip()
-    else:
-        final_summary = ""
 
-    # --- TECHNICAL FACTUAL FALLBACK GATEWAYS ---
-    # Upgraded fallback values mapped directly to literal KUKA Sunrise Cabinet Med manual parameters
-    if is_broken_generation or not final_summary or len(final_summary) < 5:
-        if any(k in query_lower for k in ["supported by the lbr", "operating modes are supported"]):
-            final_summary = "- **T1** (Manual Reduced Velocity)\n- **T2** (Manual High Velocity)\n- **AUT** (Automatic)\n- **CRR** (Controlled Robot Retraction)"
-        elif "permanently defined" in query_lower or "safety-oriented functions" in query_lower:
-            final_summary = "Permanently Defined Safety-Oriented Functions:\n- EMERGENCY STOP device\n- Enabling device\n\nPreconfigured Safety-Oriented Functions:\n- Operator safety\n- External EMERGENCY STOP\n- External Safety Stop 1"
-        elif "workspace" in query_lower or "danger zone" in query_lower:
-            final_summary = "- **Workspace**: Range within which the robot can move.\n- **Danger Zone**: Workspace + stopping distance of the robot.\n- **Safety Zone**: Area outside the danger zone."
-        elif "smartpad" in query_lower:
-            final_summary = "If the smartPAD is disconnected or removed from the system layout, at least one external Emergency Stop device must be installed and active."
-        elif "panic position" in query_lower or "enabling switch" in query_lower:
-            final_summary = "Fully pressing the enabling switch (panic position) triggers a safety-certified **Safety Stop 1 (path-maintaining)** sequence."
-        elif "fanuc" in query_lower:
-            final_summary = "- FANUC Series 16i / 160i / 160is - MODEL B\n- FANUC Series 18i / 180i / 180is - MODEL B\n- FANUC Series 21i / 210i / 210is - MODEL B"
-        elif "grease" in query_lower or "scara" in query_lower:
-            final_summary = "The recommended grease specification for Horizontal SCARA systems is Klubersynth UH1 14-222, applied strictly after 600 hours of system movement."
-        else:
-            final_summary = "Verified technical metrics could not be programmatically isolated from the current database context logs."
+    final_summary = raw_response.strip()
+    generation_failed = "error during generation" in final_summary.lower() or len(final_summary) < 5
+
+    # Repetition-loop safety net: kept model-agnostic (not just for small
+    # local models) - cheap to check, does nothing if generation is healthy,
+    # and prevents a degenerate wall of repeated template sentences from
+    # ever reaching the user as if it were a real answer.
+    if not generation_failed and _detect_repetition_loop(final_summary):
+        generation_failed = True
+
+    if generation_failed:
+        final_summary = (
+            "The model was unable to produce a reliable answer from the retrieved context "
+            "(generation failed or collapsed into a repetitive loop). Relevant document chunks "
+            "were found and are listed below in the Reference section - please retry the "
+            "question, or check the LLM client connection if this happens repeatedly."
+        )
 
     references_string = ", ".join(source_files) if source_files else "Local Knowledge Base"
-    
-    # Pure structured payload injection to keep the user-facing screen clean and executive
-    structured_reply = (
-        f"{final_summary}\n\n"
-        f"Reference:\n- {references_string}"
-    )
+    structured_reply = f"{final_summary}\n\nReference:\n- {references_string}"
 
     thinking_content = (
-        f"Active Dynamic Pipeline Allocation: {len(final_context_chunks)} chunks injected into context (Top score: {top_score})\n"
-        f"Active Expansion Trajectories:\n" + "\n".join([f" ↳ {q}" for q in expanded_queries]) + "\n\n"
-        f"Execution Metrics Summary:\n"
-        f"✔ Expanded retrieval matrix width to maximize multi-hop synthesis coverage.\n"
-        f"✔ Embedded tracking labels inside document blocks to protect section hierarchies."
+        f"Chunks injected into context: {len(final_context_chunks)} (top rerank score: {top_score})\n"
+        f"Expanded query tracks:\n" + "\n".join(f" -> {q}" for q in expanded_queries)
     )
-            
+
     return {
         "reply": structured_reply,
         "thinking": thinking_content,
         "telemetry": telemetry,
-        "chunks_matrix": chunks_matrix_payload
+        "chunks_matrix": chunks_matrix_payload,
     }
+
+
+def _detect_repetition_loop(text: str, max_line_repeat_ratio: float = 0.3) -> bool:
+    """
+    Detects whether generation collapsed into a repetition loop - a known
+    failure mode of small local models on multi-chunk synthesis prompts,
+    where the model repeats a templated sentence ("In the Nth document
+    chunk, there is a mention of...") instead of answering. This does NOT
+    fabricate content - it only flags garbage output so the pipeline can
+    report failure honestly instead of returning a degenerate wall of
+    repeated sentences to the user.
+    """
+    sentences = [s.strip() for s in text.split(".") if s.strip()]
+    if len(sentences) < 5:
+        return False
+
+    # Normalize each sentence by stripping standalone digits/ordinals
+    # ("In the third document chunk" vs "In the fourth document chunk" are
+    # the same template with one word changed - compare structure, not exact text)
+    normalized = [" ".join(w for w in s.lower().split() if not w.isdigit()) for s in sentences]
+    unique_ratio = len(set(normalized)) / len(normalized)
+
+    return unique_ratio < max_line_repeat_ratio
+
+
+def _empty_result(reply: str, thinking: str, telemetry: dict) -> dict:
+    return {"reply": reply, "thinking": thinking, "telemetry": telemetry, "chunks_matrix": []}

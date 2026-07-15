@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
+import re 
 
 # scripts/ is a sibling of src/, not a package under src - add project root
 # so "from scripts.ingest import ..." resolves regardless of working directory
@@ -157,6 +158,29 @@ async def serve_ui():
         return FileResponse(ui_path)
     return {"message": "Interface file not found. Please create the static/index.html file."}
 
+def _safe_filename(filename: str) -> str:
+    """
+    Prevents path traversal (e.g. "../../etc/passwd") when serving files
+    by name. Only allows the plain filename, no directory separators.
+    """
+    return os.path.basename(filename)
+
+
+@app.get("/source/{filename}")
+async def serve_source_document(filename: str):
+    """
+    Serves an ingested source file for the citation viewer. The UI links
+    to this with a #page=N fragment, which browser-native PDF viewers
+    (Chrome, Firefox, Edge) honor to jump straight to that page - no
+    PDF.js integration needed for this simple version.
+    """
+    safe_name = _safe_filename(filename)
+    file_path = os.path.join("docs/sample_docs", safe_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"Source file '{safe_name}' not found.")
+
+    return FileResponse(file_path)
 
 if __name__ == "__main__":
     uvicorn.run("api.app:app", host="127.0.0.1", port=8000, reload=True)

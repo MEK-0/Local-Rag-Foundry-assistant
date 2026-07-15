@@ -268,16 +268,20 @@
             const card = document.createElement('div');
             card.className = "space-y-2 bg-[#131314] text-[11px] font-mono leading-relaxed select-text";
 
-            const rows = chunksMatrix.map((chunk, idx) => `
-                <div class="border border-[#2d2e30] rounded-lg p-2 space-y-1 bg-[#1e1f20]">
+            const rows = chunksMatrix.map((chunk, idx) => {
+                const pageParam = chunk.page ? `#page=${chunk.page}` : '';
+                const sourceUrl = chunk.source ? `/source/${encodeURIComponent(chunk.source)}${pageParam}` : '#';
+                return `
+                <a href="${sourceUrl}" target="_blank" class="block border border-[#2d2e30] rounded-lg p-2 space-y-1 bg-[#1e1f20] hover:border-blue-500/40 transition cursor-pointer no-underline">
                     <div class="flex justify-between items-center">
                         <span class="text-blue-400 font-bold">#${idx + 1} · ${chunk.node_type || 'paragraph'}</span>
                         <span class="text-emerald-400">rerank ${chunk.rerank_score ?? '--'}</span>
                     </div>
-                    <div class="text-gray-400 truncate" title="${chunk.section || ''}">📁 ${chunk.source || 'unknown'} · p.${chunk.page ?? '?'}</div>
+                    <div class="text-gray-400 truncate" title="${chunk.section || ''}">📁 ${chunk.source || 'unknown'} · p.${chunk.page ?? '?'} 🔗</div>
                     <div class="text-gray-500 truncate" title="${chunk.section || ''}">🧭 ${chunk.section || 'Unknown Section'}</div>
-                </div>
-            `).join('');
+                </a>
+            `;
+            }).join('');
 
             card.innerHTML = `
                 <div class="text-[10px] text-blue-400 border-b border-[#2d2e30] pb-1">RETRIEVAL FILTER TRACE</div>

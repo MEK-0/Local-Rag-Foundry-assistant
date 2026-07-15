@@ -25,9 +25,15 @@ import uvicorn
 
 from src.telemetry import init_telemetry_table
 from src.config import settings
+from src.db import get_graph_data
 
 app = FastAPI(title=settings.app_name)
 
+@app.get("/graph")
+async def graph_endpoint(doc_id: str = None):
+    """Returns entity co-occurrence graph data for visualization.
+    Pass ?doc_id=... to scope to one document, omit for the full graph."""
+    return get_graph_data(doc_id)
 
 @app.on_event("startup")
 async def startup_event():

@@ -1,16 +1,18 @@
 import time
 from src.llm_client import get_embedding, generate_chat_response
-from src.retrieval.query_rewriter import rewrite_query
+from src.retrieval.query_rewriter import rewrite_query, decompose_into_subqueries
 from src.retrieval.hybrid import hybrid_retrieve
 from src.retrieval.reranker import rerank_chunks
 from src.retrieval.grader import grade_retrieved_chunks
 from src.retrieval.compression import compress_context_chunks
 
+MAX_HOPS = 2  # initial retrieval pass + at most 1 follow-up hop, never more
+
 
 def process_chat_query(query: str, advanced_mode: bool = True) -> dict:
     """
-    Multi-hop RAG pipeline: query expansion -> hybrid retrieval -> rerank ->
-    grade -> compress (+ parent expansion) -> generate.
+    RAG pipeline: query expansion -> hybrid retrieval -> rerank -> grade ->
+    compress (+ parent expansion) -> [optional single follow-up hop] -> generate.
 
     No hardcoded/canned answers anywhere in this pipeline. If retrieval or
     generation fails, the pipeline reports that honestly instead of
@@ -88,6 +90,40 @@ def process_chat_query(query: str, advanced_mode: bool = True) -> dict:
             telemetry=telemetry,
         )
 
+    # --- PHASE 4.5: Single bounded follow-up hop if context looks weak ---
+    # Not an open-ended agentic loop - capped at MAX_HOPS=2 total (initial
+    # + one follow-up). The decision to trigger a follow-up is score-based
+    # (free, reuses the same rerank_score threshold as the chunk budget
+    # above), so simple/well-matched questions never pay the extra cost.
+    # Only sub-query generation itself calls the LLM, and only when triggered.
+    hop_count = 1
+    start_time = time.perf_counter()
+    if advanced_mode and top_score <= 0.65 and len(final_context_chunks) > 0:
+        subqueries = decompose_into_subqueries(query)
+        if subqueries:
+            hop_count = 2
+            followup_candidates = []
+            for sub_q in subqueries:
+                sub_embedding = get_embedding(sub_q)
+                retrieved = hybrid_retrieve(query_text=sub_q, query_embedding=sub_embedding, top_k=search_width)
+                for chunk in retrieved:
+                    if chunk["id"] not in seen_chunk_ids:
+                        seen_chunk_ids.add(chunk["id"])
+                        followup_candidates.append(chunk)
+
+            if followup_candidates:
+                reranked_followup = rerank_chunks(query=query, chunks=followup_candidates, top_n=6)
+                graded_followup = grade_retrieved_chunks(query=query, chunks=reranked_followup)
+                compressed_followup = compress_context_chunks(query=query, chunks=graded_followup)
+
+                # Merge with the original results rather than replacing them -
+                # the first hop's chunks were still relevant, just incomplete
+                merged = final_context_chunks + compressed_followup
+                merged_sorted = sorted(merged, key=lambda c: c.get("rerank_score", 0.0), reverse=True)
+                final_context_chunks = merged_sorted[:6]  # slightly wider budget after a merge
+                top_score = final_context_chunks[0].get("rerank_score", 0.0) if final_context_chunks else top_score
+    telemetry["followup_hop_time_ms"] = round((time.perf_counter() - start_time) * 1000, 1)
+
     # --- PHASE 5: Context packaging (heading/node-type aware) ---
     context_text = ""
     source_files = set()
@@ -96,12 +132,16 @@ def process_chat_query(query: str, advanced_mode: bool = True) -> dict:
     for idx, chunk in enumerate(final_context_chunks):
         heading = chunk.get("expanded_heading") or chunk.get("heading_path") or "Unknown Section"
         node_type = chunk.get("node_type", "paragraph")
+        section_context = chunk.get("expanded_section", "")
+
         context_text += (
             f"--- CHUNK {idx + 1} "
             f"(Source: {chunk['source_file']}, Page: {chunk['page_number']}, "
             f"Type: {node_type}, Section: {heading}) ---\n"
         )
-        context_text += f"{chunk['chunk_text'].strip()}\n"
+        if section_context:
+            context_text += f"[Full section context]\n{section_context}\n\n"
+        context_text += f"[Matched excerpt]\n{chunk['chunk_text'].strip()}\n"
         context_text += f"--- END CHUNK {idx + 1} ---\n\n"
 
         source_files.add(chunk.get("source_file", "unknown"))
@@ -159,6 +199,7 @@ ANSWER:"""
     structured_reply = f"{final_summary}\n\nReference:\n- {references_string}"
 
     thinking_content = (
+        f"Retrieval hops used: {hop_count}/{MAX_HOPS}\n"
         f"Chunks injected into context: {len(final_context_chunks)} (top rerank score: {top_score})\n"
         f"Expanded query tracks:\n" + "\n".join(f" -> {q}" for q in expanded_queries)
     )

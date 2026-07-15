@@ -23,6 +23,7 @@ from scripts.ingest import _make_doc_id, _file_hash, _ingest_tree_aware, _ingest
 from src.db import insert_chunk
 import uvicorn
 
+from src.telemetry import init_telemetry_table
 from src.config import settings
 
 app = FastAPI(title=settings.app_name)
@@ -33,6 +34,7 @@ async def startup_event():
     """Ensures the schema exists before the first request, mirroring
     scripts/ingest.py's init_db() call so /upload never hits a missing table."""
     init_db()
+    init_telemetry_table()  # creates query_log table if it doesn't exist
 
 
 class ChatRequest(BaseModel):

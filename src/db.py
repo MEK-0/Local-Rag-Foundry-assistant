@@ -83,6 +83,29 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        node_id TEXT,
+        UNIQUE(doc_id, name)
+        )
+    """)
+
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS entity_edges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id TEXT NOT NULL,
+        source_entity_id INTEGER NOT NULL,
+        target_entity_id INTEGER NOT NULL,
+        weight INTEGER DEFAULT 1,
+        UNIQUE(source_entity_id, target_entity_id)
+        )
+    """)
+
+
+
     conn.commit()
 
     # --- Migration pass: patch any pre-existing table missing new columns ---
@@ -126,6 +149,8 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_nodes_doc ON knowledge_nodes(doc_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON document_chunks(parent_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_doc ON document_chunks(doc_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_doc ON entities(doc_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_doc ON entity_edges(doc_id)")
 
     conn.commit()
     conn.close()
@@ -328,3 +353,66 @@ def get_all_chunks_for_sparse() -> List[Dict[str, Any]]:
         d["bbox"] = json.loads(d["bbox"]) if d["bbox"] else None
         chunks.append(d)
     return chunks
+
+def upsert_entity(doc_id: str, name: str, node_id: str) -> int:
+    """
+    Inserts an entity (technical term/concept), or if it already exists
+    for this doc, returns its existing id. node_id records the first
+    section this entity was seen in.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO entities (doc_id, name, node_id) VALUES (?, ?, ?)
+        ON CONFLICT(doc_id, name) DO NOTHING
+    """, (doc_id, name, node_id))
+    conn.commit()
+
+    cursor.execute("SELECT id FROM entities WHERE doc_id = ? AND name = ?", (doc_id, name))
+    row = cursor.fetchone()
+    conn.close()
+    return row["id"]
+
+
+def upsert_edge(doc_id: str, source_entity_id: int, target_entity_id: int) -> None:
+    """
+    Records a co-occurrence edge between two entities (order-independent -
+    caller must ensure source < target to avoid duplicate reverse edges).
+    Increments weight if the edge already exists (stronger co-occurrence
+    signal across multiple sections).
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO entity_edges (doc_id, source_entity_id, target_entity_id, weight)
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(source_entity_id, target_entity_id) DO UPDATE SET
+            weight = weight + 1
+    """, (doc_id, source_entity_id, target_entity_id))
+    conn.commit()
+    conn.close()
+
+
+def get_graph_data(doc_id: Optional[str] = None) -> Dict[str, Any]:
+    """Returns {nodes: [...], edges: [...]} for graph visualization,
+    optionally filtered to a single document."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    if doc_id:
+        cursor.execute("SELECT id, name FROM entities WHERE doc_id = ?", (doc_id,))
+    else:
+        cursor.execute("SELECT id, name FROM entities")
+    entity_rows = cursor.fetchall()
+
+    if doc_id:
+        cursor.execute("SELECT source_entity_id, target_entity_id, weight FROM entity_edges WHERE doc_id = ?", (doc_id,))
+    else:
+        cursor.execute("SELECT source_entity_id, target_entity_id, weight FROM entity_edges")
+    edge_rows = cursor.fetchall()
+
+    conn.close()
+    return {
+        "nodes": [{"id": r["id"], "label": r["name"]} for r in entity_rows],
+        "edges": [{"from": r["source_entity_id"], "to": r["target_entity_id"], "weight": r["weight"]} for r in edge_rows],
+    }

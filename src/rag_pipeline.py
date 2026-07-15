@@ -5,6 +5,7 @@ from src.retrieval.hybrid import hybrid_retrieve
 from src.retrieval.reranker import rerank_chunks
 from src.retrieval.grader import grade_retrieved_chunks
 from src.retrieval.compression import compress_context_chunks
+from src.telemetry import log_query_event
 
 MAX_HOPS = 2  # initial retrieval pass + at most 1 follow-up hop, never more
 
@@ -202,6 +203,16 @@ ANSWER:"""
         f"Retrieval hops used: {hop_count}/{MAX_HOPS}\n"
         f"Chunks injected into context: {len(final_context_chunks)} (top rerank score: {top_score})\n"
         f"Expanded query tracks:\n" + "\n".join(f" -> {q}" for q in expanded_queries)
+    )
+
+    log_query_event(
+        query=query,
+        telemetry=telemetry,
+        advanced_mode=advanced_mode,
+        hop_count=hop_count,
+        chunk_count=len(final_context_chunks),
+        top_rerank_score=top_score,
+        generation_failed=generation_failed,
     )
 
     return {

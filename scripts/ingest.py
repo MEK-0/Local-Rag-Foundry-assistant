@@ -12,7 +12,8 @@ from src.parser import get_parser
 from src.chunking import chunk_document, chunk_nodes
 from src.llm_client import get_embedding
 from src.config import settings
-
+from src.graph_builder import build_document_graph
+from src.parser.base import NodeType
 
 def run_ingestion():
     """
@@ -160,6 +161,27 @@ def _ingest_legacy(parser, file_path: str, filename: str, doc_id: str):
 
     return chunks_data
 
+def _ingest_tree_aware(parser, file_path: str, doc_id: str, filename: str):
+    nodes = parser.parse_to_tree(file_path, doc_id=doc_id)
+    if not nodes:
+        return []
+
+    insert_nodes(nodes)
+    chunks_data = chunk_nodes(nodes, chunk_size=settings.chunk_size_tokens, chunk_overlap=settings.chunk_overlap_tokens)
+
+    for item in chunks_data:
+        item["metadata"]["doc_id"] = doc_id
+        item["metadata"]["source_file"] = filename
+
+    # Build the entity co-occurrence graph from this document's sections.
+    # Runs after insert_nodes() since build_document_graph reads children
+    # back from the DB via get_children().
+    section_nodes = [n for n in nodes if n.type == NodeType.SECTION]
+    if section_nodes:
+        sections_processed = build_document_graph(doc_id, section_nodes)
+        print(f"   -> Built entity graph from {sections_processed} sections.")
+
+    return chunks_data
 
 if __name__ == "__main__":
     run_ingestion()

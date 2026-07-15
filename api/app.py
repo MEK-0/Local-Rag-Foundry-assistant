@@ -137,6 +137,7 @@ async def upload_file_endpoint(file: UploadFile = File(...)):
             file_hash=current_hash,
             node_count=len(chunks_data),
             chunk_count=indexed_count,
+            embedding_model=EMBEDDING_MODEL_NAME,
         )
 
         return {

@@ -97,6 +97,7 @@ def run_ingestion():
                 file_hash=current_hash,
                 node_count=len(chunks_data),
                 chunk_count=indexed_count,
+                embedding_model=EMBEDDING_MODEL_NAME,
             )
 
             print(f"   Successfully indexed: {filename} ({indexed_count} chunks)")

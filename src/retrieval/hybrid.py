@@ -2,7 +2,8 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 from rank_bm25 import BM25Okapi
 
-from src.db import get_all_chunks_for_sparse, get_db_connection
+from src.db import get_all_chunks_for_sparse, get_db_connection, get_indexed_embedding_models
+from src.llm_client import EMBEDDING_MODEL_NAME
 
 # --------------------------------------------------------------------------- #
 # In-memory index cache
@@ -45,6 +46,21 @@ def _build_index() -> None:
     if not all_chunks:
         _cache.update(chunk_count=0, chunks=[], bm25=None, embedding_matrix=None)
         return
+
+    # Guard against silently mixing incompatible embedding dimensions -
+    # e.g. switching MODE from local (384-dim MiniLM) to cloud (1536-dim
+    # Azure) without re-ingesting. Without this check, the mismatch would
+    # only surface as a numpy shape-mismatch crash deep inside the
+    # embedding_matrix @ query_vec multiplication below, which is much
+    # harder to diagnose than a clear error raised here at index build time.
+    indexed_models = get_indexed_embedding_models()
+    if indexed_models and EMBEDDING_MODEL_NAME not in indexed_models:
+        raise RuntimeError(
+            f"Embedding model mismatch: current mode uses '{EMBEDDING_MODEL_NAME}', "
+            f"but the indexed documents were embedded with {indexed_models}. "
+            f"Re-run ingestion (scripts/ingest.py) after switching modes, or "
+            f"switch MODE back to match the indexed embedding model."
+        )
 
     corpus_tokenized = [chunk["chunk_text"].lower().split() for chunk in all_chunks]
     bm25 = BM25Okapi(corpus_tokenized)

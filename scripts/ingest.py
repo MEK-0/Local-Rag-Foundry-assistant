@@ -14,6 +14,7 @@ from src.llm_client import get_embedding
 from src.config import settings
 from src.graph_builder import build_document_graph
 from src.parser.base import NodeType
+from src.llm_client import get_embedding, EMBEDDING_MODEL_NAME
 
 def run_ingestion():
     """

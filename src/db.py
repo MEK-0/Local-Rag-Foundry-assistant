@@ -19,21 +19,17 @@ def init_db():
     Initializes the local hybrid database schema, and migrates any
     already-existing (older-schema) tables in place.
 
-    Three layers:
+    Layers:
       - documents: one row per source file, tracking a content hash and
         the embedding model used, so re-ingestion can detect "unchanged"
-        (skip) vs "changed" (re-index) vs "new" (first index), and so a
-        mode switch (local <-> cloud) with incompatible embedding
-        dimensions can be caught explicitly instead of crashing silently
-        inside a numpy shape mismatch.
+        vs "changed" vs "new", and a mode switch (local <-> cloud) with
+        incompatible embedding dimensions can be caught explicitly.
       - knowledge_nodes: the full hierarchical tree (source of truth for
         parent-child expansion, headings, tables, figures, bbox/page anchors)
       - document_chunks: retrieval units produced by chunk_nodes(), each
         pointing back to its source node(s) via node_ids / parent_id
-
-    CREATE TABLE IF NOT EXISTS only helps for a fresh DB - if data/rag.db
-    already exists from before a schema change, the old table is left
-    as-is unless _migrate_missing_columns() patches it.
+      - entities / entity_edges: extracted technical terms per section
+        and co-occurrence edges between them, for the document graph.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -84,27 +80,25 @@ def init_db():
     """)
 
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS entities (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        doc_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        node_id TEXT,
-        UNIQUE(doc_id, name)
+        CREATE TABLE IF NOT EXISTS entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            node_id TEXT,
+            UNIQUE(doc_id, name)
         )
     """)
 
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS entity_edges (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        doc_id TEXT NOT NULL,
-        source_entity_id INTEGER NOT NULL,
-        target_entity_id INTEGER NOT NULL,
-        weight INTEGER DEFAULT 1,
-        UNIQUE(source_entity_id, target_entity_id)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS entity_edges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id TEXT NOT NULL,
+            source_entity_id INTEGER NOT NULL,
+            target_entity_id INTEGER NOT NULL,
+            weight INTEGER DEFAULT 1,
+            UNIQUE(source_entity_id, target_entity_id)
         )
     """)
-
-
 
     conn.commit()
 
@@ -143,8 +137,6 @@ cursor.execute("""
     })
     conn.commit()
 
-    # Indexes are created after migration so the columns they reference
-    # are guaranteed to exist by this point
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_nodes_parent ON knowledge_nodes(parent_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_nodes_doc ON knowledge_nodes(doc_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON document_chunks(parent_id)")
@@ -159,12 +151,11 @@ cursor.execute("""
 def _migrate_missing_columns(cursor, table_name: str, expected_columns: dict) -> None:
     """
     Adds any column from expected_columns that doesn't already exist on
-    table_name. SQLite's ALTER TABLE only supports adding columns (not
-    reordering/dropping) - existing rows get the new column back-filled
-    with NULL (or the column's default).
+    table_name. SQLite's ALTER TABLE only supports adding columns - existing
+    rows get the new column back-filled with NULL (or the column's default).
     """
     cursor.execute(f"PRAGMA table_info({table_name})")
-    existing_columns = {row[1] for row in cursor.fetchall()}  # row[1] = column name
+    existing_columns = {row[1] for row in cursor.fetchall()}
 
     for col_name, col_type in expected_columns.items():
         if col_name not in existing_columns:
@@ -177,7 +168,6 @@ def _migrate_missing_columns(cursor, table_name: str, expected_columns: dict) ->
 # --------------------------------------------------------------------------- #
 
 def get_document_hash(doc_id: str) -> Optional[str]:
-    """Returns the stored content hash for a doc_id, or None if never ingested."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT file_hash FROM documents WHERE doc_id = ?", (doc_id,))
@@ -194,13 +184,6 @@ def upsert_document_record(
     chunk_count: int,
     embedding_model: Optional[str] = None,
 ) -> None:
-    """
-    Records (or updates) a document's ingestion state. Called after a
-    successful ingest so the next run can compare hashes and skip
-    re-processing unchanged files. embedding_model is tracked so a mode
-    switch (local <-> cloud) with a different, dimension-incompatible
-    embedding model can be detected before it causes a retrieval crash.
-    """
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -219,13 +202,6 @@ def upsert_document_record(
 
 
 def get_indexed_embedding_models() -> List[str]:
-    """
-    Returns the distinct embedding models used across all indexed
-    documents. Used by hybrid.py to detect a mode switch that would
-    produce dimension-incompatible vectors (e.g. local 384-dim MiniLM
-    vs. cloud 1536-dim Azure embeddings) before retrieval crashes on it
-    with a numpy shape-mismatch error deep in the similarity computation.
-    """
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT DISTINCT embedding_model FROM documents WHERE embedding_model IS NOT NULL")
@@ -235,22 +211,17 @@ def get_indexed_embedding_models() -> List[str]:
 
 
 def delete_document_data(doc_id: str) -> None:
-    """
-    Wipes all nodes and chunks belonging to a doc_id. Called before
-    re-ingesting a file whose content hash has changed, so stale nodes/
-    chunks from the previous version don't linger alongside the new ones
-    (which would cause duplicate or contradictory retrieval results).
-    """
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM knowledge_nodes WHERE doc_id = ?", (doc_id,))
     cursor.execute("DELETE FROM document_chunks WHERE doc_id = ?", (doc_id,))
+    cursor.execute("DELETE FROM entities WHERE doc_id = ?", (doc_id,))
+    cursor.execute("DELETE FROM entity_edges WHERE doc_id = ?", (doc_id,))
     conn.commit()
     conn.close()
 
 
 def list_documents() -> List[Dict[str, Any]]:
-    """Returns the ingestion registry — used by the dashboard to show what's indexed."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM documents ORDER BY ingested_at DESC")
@@ -260,11 +231,10 @@ def list_documents() -> List[Dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------- #
-# Knowledge tree (nodes) — used for parent-child expansion at retrieval time
+# Knowledge tree (nodes)
 # --------------------------------------------------------------------------- #
 
 def insert_nodes(nodes: List[Any]) -> None:
-    """Bulk-inserts KnowledgeNode objects (from parse_to_tree) into the tree table."""
     conn = get_db_connection()
     cursor = conn.cursor()
     for node in nodes:
@@ -283,7 +253,6 @@ def insert_nodes(nodes: List[Any]) -> None:
 
 
 def get_node(node_id: str) -> Optional[Dict[str, Any]]:
-    """Fetches a single node by id (used to pull the parent's full content on demand)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM knowledge_nodes WHERE id = ?", (node_id,))
@@ -298,7 +267,6 @@ def get_node(node_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_children(node_id: str) -> List[Dict[str, Any]]:
-    """Fetches all direct children of a node, ordered — used to reconstruct a full section."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM knowledge_nodes WHERE parent_id = ? ORDER BY node_order", (node_id,))
@@ -312,10 +280,6 @@ def get_children(node_id: str) -> List[Dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 def insert_chunk(chunk: Dict[str, Any], embedding: List[float]) -> None:
-    """
-    Persists a single retrieval chunk. `chunk` is one item produced by
-    chunk_nodes() / chunk_document(): {"chunk_text": ..., "metadata": {...}}.
-    """
     conn = get_db_connection()
     cursor = conn.cursor()
     meta = chunk["metadata"]
@@ -338,7 +302,6 @@ def insert_chunk(chunk: Dict[str, Any], embedding: List[float]) -> None:
 
 
 def get_all_chunks_for_sparse() -> List[Dict[str, Any]]:
-    """Retrieves all indexed chunks to build/update the BM25 sparse index."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM document_chunks")
@@ -354,12 +317,12 @@ def get_all_chunks_for_sparse() -> List[Dict[str, Any]]:
         chunks.append(d)
     return chunks
 
+
+# --------------------------------------------------------------------------- #
+# Entity graph (entities + co-occurrence edges)
+# --------------------------------------------------------------------------- #
+
 def upsert_entity(doc_id: str, name: str, node_id: str) -> int:
-    """
-    Inserts an entity (technical term/concept), or if it already exists
-    for this doc, returns its existing id. node_id records the first
-    section this entity was seen in.
-    """
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -375,12 +338,6 @@ def upsert_entity(doc_id: str, name: str, node_id: str) -> int:
 
 
 def upsert_edge(doc_id: str, source_entity_id: int, target_entity_id: int) -> None:
-    """
-    Records a co-occurrence edge between two entities (order-independent -
-    caller must ensure source < target to avoid duplicate reverse edges).
-    Increments weight if the edge already exists (stronger co-occurrence
-    signal across multiple sections).
-    """
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -394,8 +351,6 @@ def upsert_edge(doc_id: str, source_entity_id: int, target_entity_id: int) -> No
 
 
 def get_graph_data(doc_id: Optional[str] = None) -> Dict[str, Any]:
-    """Returns {nodes: [...], edges: [...]} for graph visualization,
-    optionally filtered to a single document."""
     conn = get_db_connection()
     cursor = conn.cursor()
 

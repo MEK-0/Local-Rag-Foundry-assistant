@@ -1,6 +1,6 @@
 from openai import OpenAI, AzureOpenAI
 from src.config import settings
-from typing import List
+from typing import List, Optional
 
 # Embedding model identity - tracked so ingest.py / db.py can later detect a
 # mode switch that would produce incompatible vector dimensions (local
@@ -11,7 +11,8 @@ EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2" if settings.mode == "local" else setti
 if settings.mode == "local":
     client = OpenAI(
         base_url=settings.foundry_base_url,
-        api_key="not-needed-for-local"
+        api_key="not-needed-for-local",
+        timeout=60.0,
     )
 
     from sentence_transformers import SentenceTransformer
@@ -39,9 +40,17 @@ def get_embedding(text: str) -> List[float]:
         )
         return response.data[0].embedding
 
-def generate_chat_response(prompt: str) -> str:
+
+def generate_chat_response(prompt: str, max_tokens: Optional[int] = None) -> str:
     """
     Sends the augmented prompt to the selected LLM and returns the response.
+
+    max_tokens: overrides settings.generation_max_tokens for this call.
+    Useful for short, structured outputs (e.g. entity extraction JSON
+    arrays, sub-query decomposition) where the default long-answer
+    budget wastes compute/time for no benefit - this matters most on
+    local hardware, where every extra generated token is extra CPU/GPU
+    heat and wall-clock time, not just an API cost.
     """
     if settings.mode == "local":
         model_name = settings.foundry_chat_model
@@ -55,7 +64,7 @@ def generate_chat_response(prompt: str) -> str:
                 {"role": "user", "content": f"You are an intelligent offline AI assistant.\n\n{prompt}"}
             ],
             temperature=settings.generation_temperature,
-            max_tokens=settings.generation_max_tokens,
+            max_tokens=max_tokens if max_tokens is not None else settings.generation_max_tokens,
             # Small local models (e.g. qwen3-0.6b) are prone to repetition
             # loops on multi-chunk synthesis tasks. frequency_penalty
             # discourages reusing the same tokens repeatedly;

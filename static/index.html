@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,28 +9,36 @@
     <style>
         :root {
             --ms-blue: #0078D4;
-            --ms-blue-light: #2B88D8;
+            --ms-blue-light: #106EBE;
             --ms-blue-dark: #005A9E;
-            --ms-bg: #1B1A19;
-            --ms-surface: #201F1E;
-            --ms-surface-2: #292827;
-            --ms-border: #3B3A39;
-            --ms-border-light: #484644;
-            --ms-text: #F3F2F1;
-            --ms-text-secondary: #C8C6C4;
-            --ms-text-tertiary: #797775;
-            --ms-success: #6BB700;
-            --ms-warning: #FFAA44;
-            --ms-danger: #F1707B;
+
+            --ms-bg: #F5F7FB;
+            --ms-surface: rgba(255,255,255,0.42);
+            --ms-surface-2: rgba(255,255,255,0.30);
+
+            --ms-border: rgba(255,255,255,0.58);
+            --ms-border-light: rgba(255,255,255,0.72);
+
+            --ms-text: #111827;
+            --ms-text-secondary: #374151;
+            --ms-text-tertiary: #6B7280;
+
+            --ms-success: #107C10;
+            --ms-warning: #B45309;
+            --ms-danger: #C50F1F;
         }
 
         * { font-family: 'Segoe UI', 'Segoe UI Variable', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; }
 
-        body { background: var(--ms-bg); }
+        body {
+            background:
+                linear-gradient(rgba(255,255,255,.28), rgba(255,255,255,.28)),
+                url('/static/hero-bg.jpg') center center / cover no-repeat fixed;
+        }
 
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--ms-border-light); border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb { background: rgba(148,163,184,.55); border-radius: 9999px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--ms-text-tertiary); }
 
         .typing-dot { animation: blink 1.4s infinite both; }
@@ -42,15 +50,19 @@
         .animate-fade-in { animation: fadeIn 0.25s ease-out; }
 
         .acrylic {
-            background: rgba(32, 31, 30, 0.85);
-            backdrop-filter: blur(20px) saturate(125%);
-            -webkit-backdrop-filter: blur(20px) saturate(125%);
+            background: rgba(255,255,255,0.28);
+            backdrop-filter: blur(26px) saturate(160%);
+            -webkit-backdrop-filter: blur(26px) saturate(160%);
+            border: 1px solid rgba(255,255,255,0.55);
         }
 
         .fluent-card {
-            background: var(--ms-surface);
-            border: 1px solid var(--ms-border);
-            border-radius: 8px;
+            background: rgba(255,255,255,0.36);
+            border: 1px solid rgba(255,255,255,0.60);
+            border-radius: 16px;
+            backdrop-filter: blur(22px) saturate(160%);
+            -webkit-backdrop-filter: blur(22px) saturate(160%);
+            box-shadow: 0 10px 30px rgba(15,23,42,.08);
         }
 
         .fluent-btn-primary {
@@ -72,21 +84,19 @@
         }
     </style>
 </head>
-<body class="bg-[var(--ms-bg)] text-[var(--ms-text)] h-screen flex flex-col overflow-hidden relative text-sm">
+<body class="text-[var(--ms-text)] h-screen flex flex-col overflow-hidden relative text-sm">
 
-    <header class="h-14 border-b border-[var(--ms-border)] flex items-center px-6 justify-between acrylic shrink-0 z-10 select-none">
+    <header class="h-18 border-b border-white/50 flex items-center px-6 justify-between acrylic shadow-sm shrink-0 z-10 select-none">
         <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 rounded-md bg-gradient-to-br from-[var(--ms-blue)] to-[var(--ms-blue-dark)] flex items-center justify-center text-white text-sm font-bold shadow-lg">
-                ⚙
-            </div>
-            <div>
-                <h1 class="text-sm font-semibold text-[var(--ms-text)] tracking-tight">Foundry RAG</h1>
-                <p class="text-[10px] text-[var(--ms-text-tertiary)]">Industrial Automation Copilot · Enterprise Ingestion v3</p>
+            <div class="w-60 h-20 flex items-center justify-center shrink-0">
+                <img src="/static/logo.png" 
+                     alt="Foundry RAG Logo" 
+                     class="w-80 h-50 object-contain">
             </div>
         </div>
         <div class="flex items-center space-x-3 text-xs">
-            <div class="flex items-center space-x-2 bg-[var(--ms-surface-2)] px-3 py-1.5 rounded-md border border-[var(--ms-border)]">
-                <input type="checkbox" id="advanced-mode" checked class="rounded bg-[var(--ms-surface)] border-[var(--ms-border-light)] text-[var(--ms-blue)] focus:ring-0 cursor-pointer">
+            <div class="flex items-center space-x-2 bg-white/16 backdrop-blur-lg px-3 py-1.5 rounded-md border border-white/50">
+                <input type="checkbox" id="advanced-mode" checked class="rounded bg-white/20 backdrop-blur-xl border-white/70 text-[var(--ms-blue)] focus:ring-0 cursor-pointer">
                 <label for="advanced-mode" class="text-[var(--ms-text-secondary)] font-medium select-none cursor-pointer">Advanced RAG Pipeline</label>
             </div>
             <span class="bg-[rgba(107,183,0,0.12)] text-[var(--ms-success)] font-medium px-2.5 py-1 rounded-md border border-[rgba(107,183,0,0.3)] flex items-center gap-1.5">
@@ -97,8 +107,8 @@
 
     <div class="flex flex-1 overflow-hidden w-full relative">
 
-        <aside class="w-64 border-r border-[var(--ms-border)] bg-[var(--ms-surface)] flex flex-col shrink-0 overflow-hidden select-none">
-            <div class="p-4 border-b border-[var(--ms-border)] space-y-2">
+        <aside class="w-64 border-r border-white/50 bg-white/20 backdrop-blur-xl flex flex-col shrink-0 overflow-hidden select-none">
+            <div class="p-4 border-b border-white/50 space-y-2">
                 <div class="flex justify-between items-center">
                     <h2 class="text-[11px] font-semibold text-[var(--ms-text-tertiary)] tracking-wide uppercase">Knowledge Base</h2>
                     <span class="ms-chip text-[10px] px-1.5 py-0.5 rounded">SQLite</span>
@@ -113,23 +123,23 @@
                 <div class="flex-1 overflow-y-auto space-y-1 pr-1 text-xs text-[var(--ms-text-secondary)]" id="history-list"></div>
             </div>
 
-            <div class="p-4 border-t border-[var(--ms-border)]">
-                <button onclick="openGraphModal()" class="w-full bg-[var(--ms-surface-2)] hover:bg-[var(--ms-border)] border border-[var(--ms-border)] text-xs px-3 py-2 rounded-md text-[var(--ms-text-secondary)] transition flex items-center justify-center gap-1.5">
+            <div class="p-4 border-t border-white/50">
+                <button onclick="openGraphModal()" class="w-full bg-white/16 backdrop-blur-lg hover:bg-[var(--ms-border)] border border-white/50 text-xs px-3 py-2 rounded-md text-[var(--ms-text-secondary)] transition flex items-center justify-center gap-1.5">
                     🕸️ View Document Graph
                 </button>
             </div>
         </aside>
 
-        <section class="flex-1 flex flex-col bg-[var(--ms-bg)] overflow-hidden relative">
-            <div class="px-6 py-3 border-b border-[var(--ms-border)] flex gap-2 overflow-x-auto whitespace-nowrap scrollbar-none shrink-0 acrylic z-10 select-none">
-                <button onclick="quickSearch('What type of grease is recommended for the spindle of Horizontal SCARA robots, and after how many hours of movement should the customer apply it?')" class="bg-[var(--ms-surface-2)] hover:bg-[var(--ms-border)] border border-[var(--ms-border)] text-xs px-3 py-1.5 rounded-md flex items-center space-x-1.5 cursor-pointer transition text-[var(--ms-text-secondary)]"><span>🤖</span><span>SCARA Grease Spec</span></button>
-                <button onclick="quickSearch('How do I clear a Conveyor Overload Fault on the main PLC tracks?')" class="bg-[var(--ms-surface-2)] hover:bg-[var(--ms-border)] border border-[var(--ms-border)] text-xs px-3 py-1.5 rounded-md flex items-center space-x-1.5 cursor-pointer transition text-[var(--ms-text-secondary)]"><span>⚡</span><span>Conveyor Overload Fault</span></button>
-                <button onclick="quickSearch('Execute local system parameters health check')" class="bg-[var(--ms-surface-2)] hover:bg-[var(--ms-border)] border border-[var(--ms-border)] text-xs px-3 py-1.5 rounded-md flex items-center space-x-1.5 cursor-pointer transition text-[var(--ms-text-secondary)]"><span>📋</span><span>Pipeline Health</span></button>
+        <section class="flex-1 flex flex-col bg-transparent overflow-hidden relative">
+            <div class="px-6 py-3 border-b border-white/50 flex gap-2 overflow-x-auto whitespace-nowrap scrollbar-none shrink-0 acrylic z-10 select-none">
+                <button onclick="quickSearch('What type of grease is recommended for the spindle of Horizontal SCARA robots, and after how many hours of movement should the customer apply it?')" class="bg-white/16 backdrop-blur-lg hover:bg-[var(--ms-border)] border border-white/50 text-xs px-3 py-1.5 rounded-md flex items-center space-x-1.5 cursor-pointer transition text-[var(--ms-text-secondary)]"><span>🤖</span><span>SCARA Grease Spec</span></button>
+                <button onclick="quickSearch('How do I clear a Conveyor Overload Fault on the main PLC tracks?')" class="bg-white/16 backdrop-blur-lg hover:bg-[var(--ms-border)] border border-white/50 text-xs px-3 py-1.5 rounded-md flex items-center space-x-1.5 cursor-pointer transition text-[var(--ms-text-secondary)]"><span>⚡</span><span>Conveyor Overload Fault</span></button>
+                <button onclick="quickSearch('Execute local system parameters health check')" class="bg-white/16 backdrop-blur-lg hover:bg-[var(--ms-border)] border border-white/50 text-xs px-3 py-1.5 rounded-md flex items-center space-x-1.5 cursor-pointer transition text-[var(--ms-text-secondary)]"><span>📋</span><span>Pipeline Health</span></button>
             </div>
 
             <main class="flex-1 overflow-y-auto px-6 py-6 space-y-6 max-w-4xl mx-auto w-full scroll-smooth" id="chat-container">
                 <div class="fluent-card p-6 space-y-4 shadow-xl max-w-3xl mx-auto mt-4 select-none">
-                    <div class="flex items-center justify-between border-b border-[var(--ms-border)] pb-3">
+                    <div class="flex items-center justify-between border-b border-white/50 pb-3">
                         <h3 class="text-sm font-semibold text-[var(--ms-blue-light)] flex items-center gap-2">✨ Technical Copilot</h3>
                         <span class="ms-chip text-[10px] px-2 py-0.5 rounded">Local Inference</span>
                     </div>
@@ -137,18 +147,18 @@
                     <div class="text-xs text-[var(--ms-text-secondary)] space-y-2 pt-1">
                         <span class="font-medium text-[var(--ms-text-tertiary)] block">Active pipeline stages:</span>
                         <ul class="grid grid-cols-2 gap-2 text-[var(--ms-text-secondary)] text-[11px]">
-                            <li class="bg-[var(--ms-surface-2)] p-2 rounded-md border border-[var(--ms-border)]">✔ Hybrid RRF Fusion</li>
-                            <li class="bg-[var(--ms-surface-2)] p-2 rounded-md border border-[var(--ms-border)]">✔ Cross-Encoder Rerank</li>
-                            <li class="bg-[var(--ms-surface-2)] p-2 rounded-md border border-[var(--ms-border)]">✔ Parent-Section Expansion</li>
-                            <li class="bg-[var(--ms-surface-2)] p-2 rounded-md border border-[var(--ms-border)]">✔ Bounded Multi-Hop</li>
+                            <li class="bg-white/16 backdrop-blur-lg p-2 rounded-md border border-white/50">✔ Hybrid RRF Fusion</li>
+                            <li class="bg-white/16 backdrop-blur-lg p-2 rounded-md border border-white/50">✔ Cross-Encoder Rerank</li>
+                            <li class="bg-white/16 backdrop-blur-lg p-2 rounded-md border border-white/50">✔ Parent-Section Expansion</li>
+                            <li class="bg-white/16 backdrop-blur-lg p-2 rounded-md border border-white/50">✔ Bounded Multi-Hop</li>
                         </ul>
                     </div>
                 </div>
             </main>
 
             <div class="p-4 bg-gradient-to-t from-[var(--ms-bg)] via-[var(--ms-bg)] to-transparent shrink-0 select-none">
-                <form id="chat-form" class="max-w-4xl mx-auto flex items-center space-x-3 bg-[var(--ms-surface)] rounded-lg border border-[var(--ms-border)] p-2 fluent-focus transition-all">
-                    <button type="button" onclick="toggleModal(true)" class="p-2.5 hover:bg-[var(--ms-surface-2)] rounded-md text-[var(--ms-text-tertiary)] hover:text-[var(--ms-text)] transition cursor-pointer shrink-0" title="Upload Document">
+                <form id="chat-form" class="max-w-4xl mx-auto flex items-center space-x-3 bg-white/20 backdrop-blur-xl rounded-lg border border-white/50 p-2 fluent-focus transition-all">
+                    <button type="button" onclick="toggleModal(true)" class="p-2.5 hover:bg-white/16 backdrop-blur-lg rounded-md text-[var(--ms-text-tertiary)] hover:text-[var(--ms-text)] transition cursor-pointer shrink-0" title="Upload Document">
                         📁
                     </button>
                     <input type="text" id="user-input" placeholder="Describe the automation issue or request engineering specification mapping..." autocomplete="off"
@@ -162,14 +172,14 @@
             </div>
         </section>
 
-        <aside class="w-80 border-l border-[var(--ms-border)] bg-[var(--ms-surface)] flex flex-col shrink-0 overflow-hidden select-none">
-            <div class="p-4 border-b border-[var(--ms-border)]">
+        <aside class="w-80 border-l border-white/50 bg-white/20 backdrop-blur-xl flex flex-col shrink-0 overflow-hidden select-none">
+            <div class="p-4 border-b border-white/50">
                 <h2 class="text-[11px] font-semibold text-[var(--ms-text-tertiary)] tracking-wide uppercase flex items-center gap-1.5">📊 Pipeline Telemetry</h2>
             </div>
 
             <div class="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-[var(--ms-text-secondary)]">
                 <div class="space-y-2 fluent-card p-3">
-                    <div class="text-[var(--ms-text)] font-semibold border-b border-[var(--ms-border)] pb-1.5 mb-1.5 text-[11px] flex justify-between items-center">
+                    <div class="text-[var(--ms-text)] font-semibold border-b border-white/50 pb-1.5 mb-1.5 text-[11px] flex justify-between items-center">
                         <span>LATENCY TRACE</span>
                         <span class="text-[var(--ms-blue-light)] text-[10px]">Last Query</span>
                     </div>
@@ -194,7 +204,7 @@
                 </div>
 
                 <div class="space-y-2 fluent-card p-3 flex flex-col h-72">
-                    <div class="text-[var(--ms-text)] font-semibold border-b border-[var(--ms-border)] pb-1.5 text-[11px]">EXPLAINABILITY MATRIX</div>
+                    <div class="text-[var(--ms-text)] font-semibold border-b border-white/50 pb-1.5 text-[11px]">EXPLAINABILITY MATRIX</div>
                     <div class="flex-1 overflow-y-auto space-y-2 pr-1 pt-1" id="explainability-dump">
                         <p class="text-[10px] text-[var(--ms-text-tertiary)] text-center pt-16 italic">No query loaded into active telemetry pipelines.</p>
                     </div>
@@ -205,19 +215,19 @@
 
     <div id="upload-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center hidden z-50 select-none">
         <div class="fluent-card w-full max-w-lg p-6 space-y-4 relative shadow-2xl mx-4">
-            <div class="flex justify-between items-center border-b border-[var(--ms-border)] pb-3">
+            <div class="flex justify-between items-center border-b border-white/50 pb-3">
                 <h2 class="text-sm font-semibold text-[var(--ms-text)] flex items-center gap-2">📄 Upload System Document</h2>
                 <button onclick="toggleModal(false)" class="text-[var(--ms-text-tertiary)] hover:text-[var(--ms-text)] text-lg cursor-pointer transition">&times;</button>
             </div>
             <p class="text-xs text-[var(--ms-text-secondary)] leading-relaxed">Add documentation to the local knowledge store. Chunking, embedding, and entity extraction happen automatically on-device.</p>
 
-            <div class="border-2 border-dashed border-[var(--ms-border-light)] hover:border-[var(--ms-blue)] rounded-lg p-8 text-center bg-[var(--ms-surface-2)] cursor-pointer transition relative group" onclick="document.getElementById('file-input').click()">
+            <div class="border-2 border-dashed border-white/70 hover:border-[var(--ms-blue)] rounded-lg p-8 text-center bg-white/16 backdrop-blur-lg cursor-pointer transition relative group" onclick="document.getElementById('file-input').click()">
                 <input type="file" id="file-input" accept=".md,.pdf,.docx,.xlsx,.xls,.csv" onchange="handleFileSelect(this)" class="hidden"/>
                 <div class="text-3xl mb-2 group-hover:scale-110 transition-transform">📁</div>
                 <p class="text-xs text-[var(--ms-text-secondary)] group-hover:text-[var(--ms-blue-light)] transition" id="upload-status-text">Drop manual sheet here or <span class="underline text-[var(--ms-blue-light)]">click to browse local files</span></p>
             </div>
             <div class="flex justify-end space-x-2 pt-2">
-                <button onclick="toggleModal(false)" class="px-4 py-2 bg-[var(--ms-surface-2)] hover:bg-[var(--ms-border)] text-[var(--ms-text-secondary)] text-xs rounded-md cursor-pointer transition border border-[var(--ms-border)]">Cancel</button>
+                <button onclick="toggleModal(false)" class="px-4 py-2 bg-white/16 backdrop-blur-lg hover:bg-[var(--ms-border)] text-[var(--ms-text-secondary)] text-xs rounded-md cursor-pointer transition border border-white/50">Cancel</button>
                 <button id="modal-upload-btn" onclick="uploadSelectedFile()" disabled class="px-4 py-2 fluent-btn-primary disabled:bg-[var(--ms-border)] disabled:text-[var(--ms-text-tertiary)] text-white text-xs rounded-md cursor-pointer transition shadow-md">Ingest Now</button>
             </div>
         </div>
@@ -225,11 +235,11 @@
 
     <div id="graph-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden z-50 flex items-center justify-center select-none">
         <div class="fluent-card w-full max-w-4xl h-[600px] p-4 relative shadow-2xl mx-4 flex flex-col">
-            <div class="flex justify-between items-center border-b border-[var(--ms-border)] pb-3 mb-2">
+            <div class="flex justify-between items-center border-b border-white/50 pb-3 mb-2">
                 <h2 class="text-sm font-semibold text-[var(--ms-text)] flex items-center gap-2">🕸️ Document Entity Graph</h2>
                 <button onclick="closeGraphModal()" class="text-[var(--ms-text-tertiary)] hover:text-[var(--ms-text)] text-lg cursor-pointer transition">&times;</button>
             </div>
-            <div id="graph-container" class="flex-1 bg-[var(--ms-bg)] rounded-lg border border-[var(--ms-border)]"></div>
+            <div id="graph-container" class="flex-1 bg-transparent rounded-lg border border-white/50"></div>
             <p class="text-[10px] text-[var(--ms-text-tertiary)] pt-2 text-center">Nodes = extracted technical terms · Edges = co-occurrence within the same section</p>
         </div>
     </div>
@@ -258,7 +268,7 @@
                 list.innerHTML = docs.map(doc => {
                     const shortName = doc.filename.length > 22 ? doc.filename.substring(0, 19) + '...' : doc.filename;
                     return `
-                        <div class="flex items-center justify-between text-xs bg-[var(--ms-surface-2)] border border-[var(--ms-border)] p-2 rounded-md group hover:border-[var(--ms-border-light)] transition">
+                        <div class="flex items-center justify-between text-xs bg-white/16 backdrop-blur-lg border border-white/50 p-2 rounded-md group hover:border-white/70 transition">
                             <span class="truncate text-[var(--ms-text-secondary)]" title="${doc.filename}">📄 ${shortName}</span>
                             <span class="text-[9px] ms-chip px-1 rounded shrink-0">${doc.chunk_count} chunks</span>
                         </div>`;
@@ -397,7 +407,7 @@
                 const pageParam = chunk.page ? `#page=${chunk.page}` : '';
                 const sourceUrl = chunk.source ? `/source/${encodeURIComponent(chunk.source)}${pageParam}` : '#';
                 return `
-                <a href="${sourceUrl}" target="_blank" class="block border border-[var(--ms-border)] rounded-md p-2 space-y-1 bg-[var(--ms-surface-2)] hover:border-[var(--ms-blue)] transition cursor-pointer no-underline">
+                <a href="${sourceUrl}" target="_blank" class="block border border-white/50 rounded-md p-2 space-y-1 bg-white/16 backdrop-blur-lg hover:border-[var(--ms-blue)] transition cursor-pointer no-underline">
                     <div class="flex justify-between items-center">
                         <span class="text-[var(--ms-blue-light)] font-semibold">#${idx + 1} · ${chunk.node_type || 'paragraph'}</span>
                         <span class="text-[var(--ms-success)]">rerank ${chunk.rerank_score ?? '--'}</span>
@@ -409,7 +419,7 @@
             }).join('');
 
             card.innerHTML = `
-                <div class="text-[10px] text-[var(--ms-blue-light)] border-b border-[var(--ms-border)] pb-1">RETRIEVAL FILTER TRACE</div>
+                <div class="text-[10px] text-[var(--ms-blue-light)] border-b border-white/50 pb-1">RETRIEVAL FILTER TRACE</div>
                 <div class="flex justify-between"><span>Chunks Injected Into Context</span><span class="text-[var(--ms-text)] font-semibold">${chunksMatrix.length}</span></div>
                 <div class="space-y-1.5 pt-1">${rows}</div>
             `;
@@ -425,7 +435,7 @@
 
                 const historyList = document.getElementById('history-list');
                 const hItem = document.createElement('div');
-                hItem.className = "p-2 hover:bg-[var(--ms-surface-2)] rounded-md cursor-pointer transition border border-transparent hover:border-[var(--ms-border)] truncate text-[var(--ms-text-secondary)]";
+                hItem.className = "p-2 hover:bg-white/16 backdrop-blur-lg rounded-md cursor-pointer transition border border-transparent hover:border-white/50 truncate text-[var(--ms-text-secondary)]";
                 hItem.innerText = `💬 ${text.length > 25 ? text.substring(0, 25) + '...' : text}`;
                 historyList.prepend(hItem);
             } else {
@@ -442,7 +452,7 @@
                     thinkingHtml = `
                         <details class="fluent-card p-3 mb-2 text-xs text-[var(--ms-text-secondary)] cursor-pointer group select-text">
                             <summary class="font-medium select-none text-[var(--ms-text-tertiary)] group-open:text-[var(--ms-text)] flex items-center gap-1.5">💡 Pipeline Reasoning (click to expand)</summary>
-                            <div class="mt-2.5 pl-3 border-l-2 border-[var(--ms-blue)] whitespace-pre-line leading-relaxed text-[var(--ms-text-secondary)] bg-[var(--ms-surface-2)] p-3 rounded-md">${thinkingText}</div>
+                            <div class="mt-2.5 pl-3 border-l-2 border-[var(--ms-blue)] whitespace-pre-line leading-relaxed text-[var(--ms-text-secondary)] bg-white/16 backdrop-blur-lg p-3 rounded-md">${thinkingText}</div>
                         </details>
                     `;
                 }

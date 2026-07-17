@@ -4,6 +4,7 @@ import sys
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 import re 
@@ -28,6 +29,8 @@ from src.config import settings
 from src.db import get_graph_data
 
 app = FastAPI(title=settings.app_name)
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/graph")
 async def graph_endpoint(doc_id: str = None):

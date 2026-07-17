@@ -1,43 +1,46 @@
+import re
 import json
 from typing import List, Dict, Any
 
 from src.llm_client import generate_chat_response
 from src.db import upsert_entity, upsert_edge, get_children
 
-ENTITY_EXTRACTION_PROMPT = """Extract the key technical terms, concepts, part names, \
-or named entities mentioned in the following section of a technical document. \
-Return between 2 and 8 entities - only the ones that matter (e.g. component \
-names, safety terms, model numbers, procedures) - not generic words.
+ENTITY_EXTRACTION_PROMPT = """Extract 2 to 8 key technical terms, part names, or \
+named concepts from the text below. Output ONLY a JSON array of short strings.
 
-Rules:
-- Output ONLY a JSON array of strings, nothing else.
-- No explanations, no markdown code fences.
-- If there are no meaningful entities, output an empty array: []
+Example output: ["Emergency Stop", "SCARA", "600 hours"]
 
-Section text:
+If there are no meaningful technical terms, output exactly: []
+
+Do not repeat the word "JSON" or "array" in your output. Do not add any text \
+before or after the array.
+
+Text:
 {text}
+"""
 
-JSON array:"""
-
-MIN_SECTION_LENGTH_FOR_EXTRACTION = 100  # skip trivial/near-empty sections entirely
+MIN_SECTION_LENGTH_FOR_EXTRACTION = 100
 
 
 def extract_entities_from_text(text: str) -> List[str]:
     """
     Extracts a small set of key entities/terms from a block of text using
-    the configured chat model. Falls back to an empty list on any failure
-    (parsing error, generation error, empty response) - entity extraction
-    is a best-effort enrichment step, not something that should ever break
-    ingestion.
+    the configured chat model. Falls back to an empty list on any failure -
+    entity extraction is a best-effort enrichment step, never allowed to
+    break ingestion.
+
+    Handles two known small-model failure modes seen in practice:
+      - Repetition loop (e.g. "JSON array: []\\n\\nJSON array: []\\n..." repeated
+        dozens of times) - detected and treated as "no entities found".
+      - JSON array embedded inside extra text despite instructions - extracted
+        via regex instead of requiring the whole response to be valid JSON.
     """
     if not text or len(text.strip()) < MIN_SECTION_LENGTH_FOR_EXTRACTION:
         return []
 
-    prompt = ENTITY_EXTRACTION_PROMPT.format(text=text[:2000])  # cap input size
+    prompt = ENTITY_EXTRACTION_PROMPT.format(text=text[:2000])
 
     try:
-        # Short, structured JSON output - no need for the full generation
-        # budget, keeps each call fast and reduces local compute/heat.
         raw_response = generate_chat_response(prompt, max_tokens=150)
     except Exception:
         return []
@@ -45,33 +48,31 @@ def extract_entities_from_text(text: str) -> List[str]:
     if not raw_response or "error during generation" in raw_response.lower():
         return []
 
-    cleaned = raw_response.strip().strip("`")
-    if cleaned.lower().startswith("json"):
-        cleaned = cleaned[4:].strip()
+    # Repetition-loop guard: if the same short line repeats many times,
+    # treat it as a failed/degenerate generation rather than parsing it.
+    lines = [l.strip() for l in raw_response.strip().split("\n") if l.strip()]
+    if len(lines) > 5 and len(set(lines)) <= 2:
+        return []
+
+    # Extract the first [...] block from the response instead of requiring
+    # the entire response to be valid JSON - small models often add stray
+    # text around the array despite instructions not to.
+    match = re.search(r"\[.*?\]", raw_response, re.DOTALL)
+    if not match:
+        return []
 
     try:
-        entities = json.loads(cleaned)
+        entities = json.loads(match.group(0))
     except (json.JSONDecodeError, ValueError):
         return []
 
     if not isinstance(entities, list):
         return []
 
-    return [str(e).strip() for e in entities if isinstance(e, (str, int, float)) and str(e).strip()]
+    return [str(e).strip() for e in entities if isinstance(e, (str, int, float)) and str(e).strip()][:8]
 
 
 def build_graph_for_section(doc_id: str, section_node_id: str, section_children: List[Dict[str, Any]]) -> None:
-    """
-    Extracts entities from a section's combined text (its child nodes -
-    paragraphs, tables, etc.) and records them plus co-occurrence edges
-    between every pair found in the same section.
-
-    One LLM call per section rather than per entity-pair keeps ingestion
-    cost bounded by section count, not by the combinatorial explosion of
-    entity relationships - the key cost tradeoff vs. full GraphRAG
-    relationship-typing, traded for a much cheaper "co-occurs_with" signal
-    that still supports graph traversal and visualization.
-    """
     combined_text = "\n".join(
         (child.get("content") or "").strip()
         for child in section_children
@@ -82,13 +83,13 @@ def build_graph_for_section(doc_id: str, section_node_id: str, section_children:
 
     entity_names = extract_entities_from_text(combined_text)
     if len(entity_names) < 2:
-        return  # need at least 2 entities to form an edge
+        return
 
     entity_ids = [
         upsert_entity(doc_id=doc_id, name=name, node_id=section_node_id)
         for name in entity_names
     ]
-    entity_ids = sorted(set(entity_ids))  # dedup + stable order for edge direction
+    entity_ids = sorted(set(entity_ids))
 
     for i in range(len(entity_ids)):
         for j in range(i + 1, len(entity_ids)):
@@ -96,11 +97,6 @@ def build_graph_for_section(doc_id: str, section_node_id: str, section_children:
 
 
 def build_document_graph(doc_id: str, section_nodes: List[Dict[str, Any]]) -> int:
-    """
-    Runs build_graph_for_section() for every section node in a document.
-    Prints progress since this can take a while (one LLM call per section)
-    and previously gave no feedback, making a long-running ingest look frozen.
-    """
     processed = 0
     total = len(section_nodes)
     for section in section_nodes:

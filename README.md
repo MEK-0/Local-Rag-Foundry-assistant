@@ -15,10 +15,33 @@ exposes its scores and latency so the mechanism is visible, not a black box.
 The same codebase can also switch to a **cloud mode** (Azure AI Search +
 Azure OpenAI) with a single config flag, since Foundry Local exposes an
 OpenAI-compatible API. Local-to-cloud portability is a config change, not a
-rewrite.
+rewrite — see [Local & cloud strategy](#local--cloud-strategy) for exactly
+what does and doesn't change.
 
 > Full roadmap and design rationale for every architectural decision:
 > [`docs/ROADMAP.md`](docs/ROADMAP.md)
+
+## Measured system stats
+
+Real numbers from the current database and git history, not estimates —
+useful as a sense of scale rather than a claim of completeness.
+
+| Metric | Value |
+|---|---|
+| Git commits | 91 |
+| Documents ingested | 7 |
+| Knowledge tree nodes | 22,174 |
+| Retrieval chunks indexed | 6,530 |
+| Extracted entities | 20 |
+| Entity co-occurrence edges | 58 |
+
+The entity graph numbers are intentionally small right now: entity
+extraction is opt-in (`ENABLE_ENTITY_GRAPH=true`, one LLM call per document
+section) and the largest ingested document — a ~3,479-section technical
+manual — has not yet been re-processed with the current extraction logic
+(an earlier version of the prompt caused a repetition-loop failure on that
+run; see [Engineering story](#engineering-story) below). This is a known,
+tracked gap, not a hidden one.
 
 ## Why this exists
 
@@ -28,6 +51,100 @@ all — a field engineer, an air-gapped facility, a regulated environment —
 and it optionally upgrades to a cloud-backed setup only when that tradeoff
 is worth it (bigger document sets, shared team access, no local hardware).
 
+## Engineering story
+
+Feature lists explain *what* exists. This section explains *why* it exists
+— the actual problem encountered, the reasoning behind the fix, and its
+measured effect. Every row below is something that broke or fell short
+during development of this project, not a hypothetical.
+
+| Problem | Why it mattered | Solution | Benefit |
+|---|---|---|---|
+| Flat chunking loses document structure | A table row means nothing without its header; a paragraph means less without its section context | Hierarchical `KnowledgeNode` tree (heading/paragraph/table/figure/warning/note/code) built by every parser | Tables and figures are indexed atomically and never split mid-content |
+| A matched excerpt is often incomplete on its own | "...apply after 600 hours" is meaningless without knowing *which* grease the preceding sentence named | Full parent-section reconstruction via `get_children()` in `compression.py` | The LLM receives the matched excerpt *and* its surrounding section, not just a heading label |
+| Rebuilding BM25 + cosine similarity from scratch on every query doesn't scale | With more than a few hundred chunks, this alone can cost seconds per query | In-memory cached hybrid index in `hybrid.py`, invalidated only when the corpus size changes | Retrieval latency stays in the tens-of-milliseconds range regardless of query volume |
+| Small local models degenerate on multi-chunk synthesis | The model fell into repeating "In the Nth document chunk, there is a mention of..." instead of answering | `_detect_repetition_loop()` guard + moving from `qwen3-0.6b` to `phi-4-mini` | Honest failure reporting instead of a wall of repeated, useless text reaching the user |
+| Hardcoded synonym-based query expansion doesn't generalize | The original expander only recognized "grease/spindle/scara/maintenance" — every other topic got zero expansion | LLM-based `rewrite_query()`, domain-agnostic | Query expansion now works across any subject matter present in the ingested documents |
+| One-shot retrieval fails genuinely multi-part questions | A single hybrid search pass can miss a question that needs two separate facts combined | A bounded follow-up hop in `rag_pipeline.py`: score-triggered, capped at exactly one extra retrieval round | Adaptive retrieval depth without an open-ended agentic loop or unpredictable latency |
+| A local/cloud mode switch could silently break retrieval | Local embeddings (384-dim MiniLM) and Azure embeddings (1536-dim) are not interchangeable | `get_indexed_embedding_models()` + a consistency check at index-build time in `hybrid.py` | A clear, actionable error instead of a numpy shape-mismatch crash deep in a similarity computation |
+| Short, structured LLM calls (query rewriting, entity extraction) used the full generation budget | Query expansion measured ~27s for what should be a 2-line output, with no quality benefit from the extra headroom | Per-call `max_tokens` override in `generate_chat_response()` | ~6.7x latency reduction on query expansion (27s → ~4s), no observed drop in output quality |
+| Entity extraction produced zero entities across an entire 3,479-section document | The extraction prompt ended with a literal `"JSON array:"` label, which the model echoed back in a repetition loop instead of producing content | Rewrote the prompt to avoid the echo trigger; added a repetition-loop guard and regex-based JSON extraction tolerant of stray text | Entity extraction now reliably produces real terms (confirmed against a 119-section document; see Current limitations for the large-document re-run still pending) |
+
+## Design philosophy
+
+- **Node-tree, not chunk-first.** Every parser produces the same
+  `KnowledgeNode` structure regardless of input format. Chunking is a
+  *view* over that tree, not the primary representation — this is what
+  makes parent-section reconstruction, atomic table/figure handling, and
+  the entity graph possible without format-specific special-casing.
+- **Bounded, not open-ended.** The follow-up retrieval hop is capped at
+  exactly one extra round, triggered by a cheap score threshold, not an
+  LLM "is this enough?" judgment. Agentic-sounding behavior without
+  agentic-sized latency or unpredictability was a deliberate tradeoff,
+  not a shortcut.
+- **Fail honestly, never fabricate.** There are no hardcoded fallback
+  answers anywhere in this pipeline. A wrong-but-confident canned response
+  is worse than an explicit "insufficient context" or "generation failed"
+  reply, because it fails silently on exactly the queries nobody thought to
+  write a fallback for.
+- **Measure before optimizing.** Every latency number in this README came
+  from the telemetry panel on a real query, not a guess — including the
+  query-expansion fix, which was only found because the `telemetry` dict
+  made the 27-second stage visible in the first place.
+- **Local-first, cloud-optional.** The retrieval/generation *logic*
+  (rerank → grade → compress → parent-expansion → follow-up hop) is
+  identical in both modes. Only the retrieval and generation *backends*
+  swap out. See [Local & cloud strategy](#local--cloud-strategy).
+
+## Lessons learned
+
+- **A silently-passing filter is worse than no filter.** The retrieval
+  grader's relevance threshold (`rerank_score > -3.0`) was effectively a
+  no-op — `bge-reranker-base`'s logits rarely go that low — for an unknown
+  period before it was caught and corrected to `> 0.0`. Only the Jaccard
+  dedup was ever actually filtering anything.
+- **Small models fail in specific, recognizable shapes, not randomly.**
+  Both the generation repetition loop and the entity-extraction repetition
+  loop were the *same failure pattern* (echoing a prompt fragment instead
+  of producing content) in two different parts of the codebase. Once
+  recognized once, it was straightforward to guard against elsewhere.
+- **A working demo and a correct pipeline are not the same thing.**
+  Several bugs (the grader threshold, an `insert_chunk()` field mapping
+  that wrote `source_file` into the `doc_id` column, a missing
+  `scripts/__init__.py`) produced no visible error and no obviously wrong
+  output — they degraded quality or broke a later feature silently. Actual
+  verification (checking DB contents, not just "the UI didn't crash") kept
+  catching these.
+- **Ingestion-time LLM calls scale with document structure, not document
+  size.** A 3,479-section PDF took hours to entity-extract on local
+  hardware, not because the file was large, but because the *section
+  count* directly multiplies LLM call count. This is now opt-in
+  (`ENABLE_ENTITY_GRAPH`) specifically because of this.
+
+## Current limitations
+
+Stated plainly rather than left implicit:
+
+- **The entity graph is not yet consulted during retrieval.** It's
+  currently a separate, explorable artifact (the graph viewer), not an
+  additional retrieval signal. Graph-aware retrieval is future work.
+- **The largest ingested document has not been re-processed with the
+  current entity-extraction logic** (see Measured system stats above).
+  The fix is verified on smaller documents; the large-document re-run is
+  a pending, tracked task, not a hidden failure.
+- **No automated evaluation yet.** There is no labeled eval set, no
+  Precision@K/Recall@K/MRR measurement, and no faithfulness scoring. The
+  "no naive-vs-advanced comparison" claim some RAG projects make is not
+  one this README makes — that comparison doesn't exist yet. It's the
+  next major piece of work (see Roadmap).
+- **No automated test suite.** Correctness has been verified through
+  manual testing and direct database inspection during development, not
+  `pytest`. A test suite is planned, not implemented.
+- **Cloud mode has not been run end-to-end yet.** `azure_search.py` and
+  `azure_storage.py` exist as integration points in the architecture but
+  have not yet been implemented and exercised against a live Azure
+  subscription. See Local & cloud strategy for the intended design.
+
 ## What makes this different from a tutorial RAG project
 
 | Naive RAG (typical tutorial) | This project |
@@ -35,7 +152,7 @@ is worth it (bigger document sets, shared team access, no local hardware).
 | Single dense (embedding) retrieval | Hybrid retrieval: dense + BM25, fused with Reciprocal Rank Fusion, index built once and cached |
 | Top-K by raw similarity score | Cross-encoder re-ranking on top-K candidates before generation |
 | Always trusts retrieved chunks | Retrieval grader checks relevance before the LLM sees the context; falls back to an honest "insufficient context" reply instead of hallucinating or returning a canned answer |
-| Flat text, fixed-size chunking | Documents parsed into a **hierarchical node tree** (heading/paragraph/table/figure/warning/note), chunked on heading boundaries with atomic tables/figures never split mid-content |
+| Flat text, fixed-size chunking | Documents parsed into a **hierarchical node tree**, chunked on heading boundaries with atomic tables/figures never split mid-content |
 | Markdown only | Markdown, PDF, DOCX, XLSX/CSV via a pluggable parser interface, each producing the same node-tree structure |
 | Matched chunk in isolation | Full parent-section reconstruction: a matched excerpt arrives with its surrounding section content, not just a heading label |
 | One-shot retrieval, no adaptivity | Bounded follow-up hop: weak initial matches trigger one extra sub-query decomposition + retrieval round (capped, never an open-ended loop) |
@@ -64,12 +181,12 @@ flowchart TB
     end
 
     subgraph Retrieval["Retrieval Pipeline (src/retrieval/)"]
-        RW["Query expansion (query_rewriter.py)\nLLM-based rewriting, domain-agnostic\n(replaces earlier hardcoded synonym list)"]
-        HYB["Hybrid search (hybrid.py)\nBM25 + dense cosine, RRF fusion\nIndex built once, cached across queries"]
+        RW["Query expansion (query_rewriter.py)\nLLM-based rewriting, domain-agnostic"]
+        HYB["Hybrid search\nBM25 + dense cosine, RRF fusion\nIndex cached across queries (local) or Azure AI Search (cloud)"]
         RR["Cross-encoder re-ranker (reranker.py)\nbge-reranker-base"]
         GR["Retrieval grader (grader.py)\nJaccard dedup + rerank-score / keyword-hit filter"]
-        COMP["Compression + full parent-section expansion (compression.py)\nAtomic nodes pass through unpruned\nSibling nodes reconstructed via get_children()"]
-        HOP["Bounded follow-up hop (rag_pipeline.py)\nScore-based trigger, max 1 extra hop,\nsub-query decomposition only when needed"]
+        COMP["Compression + full parent-section expansion (compression.py)\nAtomic nodes pass through unpruned\nSibling nodes reconstructed via get_children() — always against local SQLite"]
+        HOP["Bounded follow-up hop (rag_pipeline.py)\nScore-based trigger, max 1 extra hop"]
     end
 
     subgraph Local["Local mode"]
@@ -78,9 +195,9 @@ flowchart TB
         FL_EMB["Local embedding model\nSentenceTransformer all-MiniLM-L6-v2"]
     end
 
-    subgraph Cloud["Cloud mode (optional, Azure)"]
-        AIS[("Azure AI Search")]
-        BLOB[("Azure Blob Storage")]
+    subgraph Cloud["Cloud mode (optional, Azure) — planned, see Local & cloud strategy"]
+        AIS[("Azure AI Search\nmirrors document_chunks, embeddings computed once and synced")]
+        BLOB[("Azure Blob Storage\nraw document sync")]
         AOAI["Azure OpenAI (gpt-4o-mini)"]
     end
 
@@ -93,10 +210,10 @@ flowchart TB
     API --> RW --> HYB --> RR --> GR --> COMP --> HOP --> GEN
     HYB -->|MODE=local| SQL
     HYB -->|MODE=cloud| AIS
+    COMP -.parent lookup always reads.-> SQL
     FL_EMB -.embeds queries + chunks.-> HYB
     GEN -->|MODE=local| FL_CHAT
     GEN -->|MODE=cloud| AOAI
-    BLOB -.sync.-> SQL
     BLOB -.sync.-> AIS
     API -.-> TEL
     GEN --> API
@@ -108,9 +225,36 @@ chunked on heading boundaries, embedded with a local SentenceTransformer
 model, and indexed in SQLite with both dense vectors and BM25 term
 statistics. Chat generation runs through Foundry Local.
 
-**Cloud mode**: the same pipeline logic, but retrieval goes through Azure AI
-Search and generation through Azure OpenAI. Useful for larger document sets,
-shared/team access, or when local hardware isn't available.
+**Cloud mode**: retrieval and generation move to Azure; the knowledge tree,
+entity graph, and parent-section reconstruction stay on local SQLite in
+both modes. See below for exactly why.
+
+### Local & cloud strategy
+
+The node-tree, entity graph, and parent-section reconstruction logic are
+**not** planned to move to Azure. Only retrieval and generation swap
+backends. This is a deliberate scope decision, not an oversight:
+
+- Azure AI Search stores flat documents (content + vector + metadata
+  fields) — it has no native concept of a parent/child node hierarchy.
+  Rebuilding that hierarchy inside Azure AI Search would mean duplicating
+  `knowledge_nodes` there, which adds a second source of truth to keep in
+  sync for no retrieval benefit (parent lookups are cheap local reads
+  regardless of where the *initial* chunk match came from).
+- **What changes in cloud mode:** `hybrid_retrieve()` is replaced by an
+  Azure AI Search query returning the same shape of result (chunk_text,
+  source_file, page_number, node_type, parent_id, score) that
+  `rag_pipeline.py` already expects — so reranking, grading, compression,
+  parent-expansion, and the follow-up hop run **unmodified**. Generation
+  calls Azure OpenAI instead of Foundry Local through the same
+  `generate_chat_response()` interface.
+- **What doesn't change:** `scripts/ingest.py`'s parsing/chunking/node-tree
+  construction, `compression.py`'s parent-section reconstruction (always
+  reads from local SQLite), and the entity graph (always built and stored
+  locally, regardless of `MODE`).
+- **Status:** this is the intended design, not yet implemented — see
+  Current limitations. `azure_search.py` / `azure_storage.py` are the
+  integration points this design will fill in.
 
 ### RAG query flow (`process_chat_query()`, step by step)
 
@@ -177,12 +321,12 @@ flowchart TB
     DC[("document_chunks")] -.-> P3
 ```
 
-**What's deliberately *not* in this flow yet** (see Feature status below):
+**What's deliberately *not* in this flow** (see Feature status below):
 there is no open-ended agentic planning loop — the follow-up hop is capped
 at exactly one extra round, triggered by a cheap score threshold rather than
 an LLM-driven "is this enough?" judgment. Entity-graph traversal is not yet
 part of retrieval itself — the graph is currently a separate, explorable
-artifact (see the graph viewer), not consulted during chunk selection.
+artifact, not consulted during chunk selection.
 
 ### Measured latency (local mode, Phi-4-mini, Apple Silicon M4)
 
@@ -193,22 +337,12 @@ profile rather than to claim a fixed number.
 
 | Stage | Latency | Notes |
 |---|---|---|
-| Query expansion | ~4.0s | LLM-based rewrite, capped at `max_tokens=120` (was ~27s uncapped — see note below) |
+| Query expansion | ~4.0s | LLM-based rewrite, capped at `max_tokens=120` (was ~27s uncapped — see Engineering story) |
 | Vector embedding | ~83ms | Local SentenceTransformer, CPU |
 | Hybrid sparse/dense retrieval | ~64ms | Cached BM25 + vectorized cosine similarity |
 | Cross-encoder rerank | ~807ms | `bge-reranker-base`, top 6 candidates |
 | Grade + compress | ~5ms | Jaccard dedup + parent-section reconstruction |
 | Token generation | ~6.5s | Full answer synthesis, `max_tokens=1000` (intentionally uncapped — "don't truncate" instruction needs headroom) |
-
-**Why query expansion was capped:** the rewrite/decompose LLM calls only
-need to produce 2-3 short lines, but were using the full
-`generation_max_tokens` budget (1000) with no output-length signal to stop
-early, which measured at ~27s on local hardware for no quality benefit.
-Passing an explicit `max_tokens=120` to those specific calls (see
-`llm_client.generate_chat_response`'s optional `max_tokens` override)
-brought this down to ~4s — a ~6.7x improvement — with no observed drop in
-rewrite quality. Token generation is deliberately left uncapped at 1000
-since multi-part answers genuinely need that headroom.
 
 ## Feature status
 
@@ -265,6 +399,7 @@ Legend: [x] implemented · [~] in progress / partial · [ ] planned (see roadmap
 - [x] Local/cloud mode switch via config
 - [x] Configurable Foundry Local base URL (port is not assumed stable across restarts)
 - [x] Persistent structured query logging (`query_log` table via `src/telemetry.py`)
+- [ ] Cloud mode implementation (`azure_search.py` / `azure_storage.py` — design finalized, not yet built; see Local & cloud strategy)
 - [ ] Test suite (pytest, unit + integration)
 - [ ] CI pipeline (lint + tests on push)
 
@@ -279,25 +414,26 @@ Full detail, rationale, and build order for every item above:
 
 ## Tech stack
 
-| Layer | Local mode | Cloud mode |
+| Layer | Local mode | Cloud mode (planned) |
 |---|---|---|
 | Server | FastAPI | FastAPI (same app) |
-| Parsers | Markdown, PDF (`pdfplumber`), DOCX (`python-docx`), XLSX/CSV (`pandas`) — all tree-aware | same |
-| Embeddings | `SentenceTransformer` (`all-MiniLM-L6-v2`), local, CPU | Azure OpenAI embeddings / Azure AI Search vectorizer |
+| Parsers | Markdown, PDF (`pdfplumber`), DOCX (`python-docx`), XLSX/CSV (`pandas`) — all tree-aware | same (parsing/chunking never moves to Azure) |
+| Embeddings | `SentenceTransformer` (`all-MiniLM-L6-v2`), local, CPU | Azure OpenAI embeddings |
 | Chat generation | Foundry Local (`Phi-4-mini-instruct-generic-gpu:5`) | Azure OpenAI (`gpt-4o-mini`) |
 | Sparse retrieval | `rank-bm25`, index cached in memory | Azure AI Search (built-in) |
-| Re-ranking | Local cross-encoder (`bge-reranker-base`) | Azure AI Search semantic ranker (optional) |
-| Entity graph | Extracted at ingest time (opt-in), visualized via `vis-network` | same (extraction runs via the configured chat model regardless of mode) |
-| Storage | SQLite (`data/rag.db`) — knowledge tree + chunks + entity graph + document registry + query log | Azure Blob Storage + Azure AI Search index |
-| Telemetry | Persistent `query_log` table + in-response per-stage timings | Application Insights |
+| Re-ranking | Local cross-encoder (`bge-reranker-base`) | Same cross-encoder, or Azure AI Search semantic ranker |
+| Entity graph | Extracted at ingest time (opt-in), always stored locally | same — not planned to move to Azure (see Local & cloud strategy) |
+| Storage | SQLite (`data/rag.db`) — knowledge tree + chunks + entity graph + document registry + query log | Azure AI Search mirrors `document_chunks`; SQLite remains the source of truth for the tree/graph |
+| Telemetry | Persistent `query_log` table + in-response per-stage timings | Application Insights (planned) |
 
 > **Local chat model:** this project currently runs
 > `Phi-4-mini-instruct-generic-gpu:5` (3.72 GB, MIT license) via Foundry
 > Local — small enough to run comfortably on 16GB unified memory (e.g.
 > Apple Silicon M-series), while being far less prone to repetition-loop
-> failures than sub-1B models on multi-chunk synthesis prompts. Swap it in
-> `.env` via `FOUNDRY_CHAT_MODEL` if you have the hardware for something
-> larger (`foundry model list` shows what's available).
+> failures than sub-1B models on multi-chunk synthesis prompts (see
+> Engineering story). Swap it in `.env` via `FOUNDRY_CHAT_MODEL` if you have
+> the hardware for something larger (`foundry model list` shows what's
+> available).
 >
 > **Embedding model is intentionally separate from the chat model** — it's
 > always the local `all-MiniLM-L6-v2` SentenceTransformer regardless of
@@ -307,8 +443,8 @@ Full detail, rationale, and build order for every item above:
 > **Entity graph extraction is opt-in** (`ENABLE_ENTITY_GRAPH=true`) because
 > it adds one LLM call per document section during ingestion — negligible
 > for a handful of small files, but noticeably slower on large documents
-> (e.g. a 100+ page manual with hundreds of sections). Regular ingestion
-> (nodes/chunks/embeddings) is unaffected either way.
+> (see Lessons learned: ingestion-time LLM calls scale with section count,
+> not file size).
 
 ## Project layout
 
@@ -335,13 +471,13 @@ Full detail, rationale, and build order for every item above:
 │   │   └── compression.py        Sentence-window pruning + full parent-section reconstruction
 │   ├── llm_client.py           Foundry Local + Azure OpenAI client wrappers
 │   ├── rag_pipeline.py         Orchestrates expansion -> retrieval -> [follow-up hop] -> generation
-│   ├── azure_search.py         Azure AI Search index + query helpers
-│   ├── azure_storage.py        Blob Storage document sync
+│   ├── azure_search.py         Azure AI Search index + query helpers (planned, not yet implemented)
+│   ├── azure_storage.py        Blob Storage document sync (planned, not yet implemented)
 │   └── telemetry.py            Persistent structured query logging
 ├── scripts/
 │   ├── __init__.py
 │   ├── ingest.py                Parse + chunk + embed + index, with hash-based dedup
-│   ├── sync_azure.py            Push docs to Blob Storage + Azure AI Search
+│   ├── sync_azure.py            Push docs to Blob Storage + Azure AI Search (planned)
 │   └── run_eval.py              Benchmark harness (planned)
 ├── static/                     Dashboard UI (chat, latency trace, explainability
 │                                panel, entity graph viewer) — Fluent Design theme
@@ -404,7 +540,7 @@ everything in `data/rag.db`. Re-running this is safe and fast — unchanged
 files are skipped via content hash comparison.
 
 To also build the entity graph during ingestion (adds one LLM call per
-section — slower on large documents):
+section — slower on large documents, see Lessons learned):
 
 ```bash
 ENABLE_ENTITY_GRAPH=true python scripts/ingest.py
@@ -418,13 +554,16 @@ uvicorn api.app:app --reload
 
 Open `http://127.0.0.1:8000`. Turn off Wi-Fi and it still works.
 
-## Setup — cloud mode (optional, Azure)
+## Setup — cloud mode (planned, not yet implemented)
 
-Requires an Azure subscription.
+The design is finalized (see [Local & cloud strategy](#local--cloud-strategy)
+above) but `azure_search.py` / `azure_storage.py` are not yet built. This
+section documents the intended setup for when that lands — see Current
+limitations and the Roadmap for status.
 
 **1. Provision resources** — Azure AI Search (Free tier), a Storage Account,
 an Azure OpenAI resource with a `gpt-4o-mini` deployment, and Application
-Insights. See `scripts/sync_azure.py` header comment for exact SKUs.
+Insights.
 
 **2. Fill in `.env`**
 
@@ -447,12 +586,13 @@ python scripts/sync_azure.py
 uvicorn api.app:app --reload
 ```
 
-The dashboard UI and API surface are identical — only `MODE` changes.
+The dashboard UI and API surface are designed to be identical — only
+`MODE` changes.
 
 ## Evaluation
 
-Planned, not yet implemented (see Feature status above and
-[`docs/ROADMAP.md`](docs/ROADMAP.md)):
+Planned, not yet implemented (see Feature status and Current limitations
+above, and [`docs/ROADMAP.md`](docs/ROADMAP.md)):
 
 ```bash
 python scripts/run_eval.py
@@ -465,7 +605,7 @@ advanced retrieval configurations, and write a comparison report
 ## Cost & safety notes (cloud mode)
 
 - Azure AI Search Free tier and Application Insights' free ingestion quota
-  cover this project's needs at $0.
+  are expected to cover this project's needs at $0, once cloud mode is built.
 - Azure OpenAI is billed per token — set a **budget alert** in the Azure
   portal before testing.
 - Never commit `.env`. `.env.example` is the only file that should be
@@ -476,7 +616,8 @@ advanced retrieval configurations, and write a comparison report
 
 ## Testing
 
-Not yet implemented — tracked in Feature status / roadmap.
+Not yet implemented — tracked in Feature status / Current limitations /
+roadmap.
 
 ```bash
 pytest tests/
@@ -487,54 +628,6 @@ pytest tests/
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full advanced-RAG build
 plan, prioritized day-by-day, with the reasoning behind each architectural
 choice.
-
-## Changelog
-
-**feat: full parent-section expansion, entity graph, bounded multi-hop, latency fixes**
-
-- `compression.py`: parent-context expansion now reconstructs the full
-  sibling section via `get_children()` instead of only looking up the
-  parent's heading text.
-- `api.py` + `static/index.html`: added a click-through source citation
-  viewer (`GET /source/{filename}#page=N`) linking each retrieved chunk
-  back to its original document page.
-- `query_rewriter.py`: replaced the hardcoded synonym dictionary with
-  LLM-based query rewriting, domain-agnostic; added
-  `decompose_into_subqueries()` for the new follow-up hop.
-- `rag_pipeline.py`: added a bounded (max 1 extra) follow-up retrieval
-  hop, triggered by a cheap rerank-score threshold rather than an LLM
-  "is this enough?" call.
-- `db.py`: added `entities`/`entity_edges` tables, schema migration for
-  pre-existing databases, and an embedding-model consistency guard to
-  catch a local/cloud mode switch before it crashes retrieval.
-- `graph_builder.py` (new): per-section entity extraction and
-  co-occurrence graph building, opt-in via `ENABLE_ENTITY_GRAPH`, with a
-  repetition-loop guard and regex-tolerant JSON parsing after an initial
-  version produced zero entities across an entire large document due to
-  a prompt-echo repetition loop.
-- `telemetry.py`: implemented persistent structured query logging
-  (previously an empty placeholder).
-- `query_rewriter.py` / `llm_client.py`: capped `max_tokens` on short
-  structured LLM calls (query rewriting, sub-query decomposition, entity
-  extraction) — query expansion latency dropped from ~27s to ~4s with no
-  observed quality loss.
-- `static/index.html`: Microsoft Fluent Design visual theme (Segoe UI,
-  Microsoft blue palette, acrylic surfaces) and an interactive entity
-  graph viewer (`vis-network`).
-- `xlsx_parser.py`: large sheets are now split into multiple row-range
-  table nodes instead of one oversized node per sheet.
-
-**docs(readme): rewrite architecture to match current node-tree RAG implementation**
-
-Replaced the aspirational architecture diagram (agentic sub-query router,
-loop/scratchpad retrieval) with one matching the actual
-`process_chat_query()` flow. Added a step-by-step RAG query flow diagram.
-Corrected the feature status table: parent-child expansion marked partial
-(parent-only lookup, no child reconstruction), agentic multi-hop downgraded
-to planned (query expansion is deterministic synonym substitution, not
-LLM-based). Updated tech stack and setup docs for
-`Phi-4-mini-instruct-generic-gpu:5` and the configurable Foundry Local base
-URL. Marked incremental ingestion as implemented.
 
 ## License
 

@@ -11,8 +11,8 @@ foundry-local-sdk==0.3.0
 numpy==1.26.4
 
 # Azure — cloud mode (optional, only needed if MODE=cloud)
-azure-search-documents==11.5.1
-azure-storage-blob==12.23.0
+azure-search-documents>=11.5.1
+azure-storage-blob>=12.19.0
 openai==1.51.0                 # used for both Foundry Local (OpenAI-compatible) and Azure OpenAI
 azure-identity==1.17.1
 opencensus-ext-azure==1.1.13   # Application Insights logging

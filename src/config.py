@@ -27,10 +27,19 @@ class Settings(BaseSettings):
     # do not assume changing this value has any effect yet.
     #foundry_embedding_model: str = "qwen3-0.6b"
 
+    # --- Entity graph (opt-in, adds one LLM call per document section) ---
+    enable_entity_graph: bool = False
+
+    # --- Azure AI Search (cloud mode) ----------------------------------
     azure_search_endpoint: Optional[str] = None
     azure_search_key: Optional[str] = None
     azure_search_index: Optional[str] = "rag-index"
 
+    # --- Azure Blob Storage (cloud mode, document sync) -----------------
+    azure_storage_connection_string: Optional[str] = None
+    azure_storage_container: str = "rag-documents"
+
+    # --- Azure OpenAI (cloud mode) --------------------------------------
     azure_openai_endpoint: Optional[str] = None
     azure_openai_key: Optional[str] = None
     azure_openai_deployment: Optional[str] = "gpt-4o-mini"

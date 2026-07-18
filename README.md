@@ -28,7 +28,6 @@ useful as a sense of scale rather than a claim of completeness.
 
 | Metric | Value |
 |---|---|
-| Git commits | 91 |
 | Documents ingested | 7 |
 | Knowledge tree nodes | 22,174 |
 | Retrieval chunks indexed | 6,530 |

@@ -143,6 +143,15 @@ Stated plainly rather than left implicit:
   `azure_storage.py` exist as integration points in the architecture but
   have not yet been implemented and exercised against a live Azure
   subscription. See Local & cloud strategy for the intended design.
+- **OneLake (Microsoft Fabric) was evaluated as an alternative document
+  source** to Blob Storage sync, via Azure AI Search's OneLake indexer
+  (indexing files directly from a Fabric Lakehouse). Not attempted: it
+  requires a separately-provisioned Fabric capacity, and Azure AI Search
+  itself could not be provisioned under the available subscription due
+  to regional capacity limits (see above) - attempting a second,
+  likely-more-restricted resource type wasn't a good use of time before
+  the first was confirmed available. `src/azure_onelake.py` records the
+  integration point as a stub for future work.
 
 ## What makes this different from a tutorial RAG project
 
@@ -197,6 +206,7 @@ flowchart TB
     subgraph Cloud["Cloud mode (optional, Azure) — planned, see Local & cloud strategy"]
         AIS[("Azure AI Search\nmirrors document_chunks, embeddings computed once and synced")]
         BLOB[("Azure Blob Storage\nraw document sync")]
+        ONELAKE[("OneLake / Microsoft Fabric\n(design stub,  -\nalternative doc source via Search's OneLake indexer)")]
         AOAI["Azure OpenAI (gpt-4o-mini)"]
     end
 
@@ -209,6 +219,7 @@ flowchart TB
     API --> RW --> HYB --> RR --> GR --> COMP --> HOP --> GEN
     HYB -->|MODE=local| SQL
     HYB -->|MODE=cloud| AIS
+    
     COMP -.parent lookup always reads.-> SQL
     FL_EMB -.embeds queries + chunks.-> HYB
     GEN -->|MODE=local| FL_CHAT

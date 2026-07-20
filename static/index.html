@@ -99,8 +99,8 @@
                 <input type="checkbox" id="advanced-mode" checked class="rounded bg-white/20 backdrop-blur-xl border-white/70 text-[var(--ms-blue)] focus:ring-0 cursor-pointer">
                 <label for="advanced-mode" class="text-[var(--ms-text-secondary)] font-medium select-none cursor-pointer">Advanced RAG Pipeline</label>
             </div>
-            <span class="bg-[rgba(107,183,0,0.12)] text-[var(--ms-success)] font-medium px-2.5 py-1 rounded-md border border-[rgba(107,183,0,0.3)] flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-[var(--ms-success)]"></span> Offline Ready
+            <span id="mode-badge" title="Mode is set in .env (MODE=local/cloud) and requires a server restart to change - not switchable from this UI." class="bg-[rgba(107,183,0,0.12)] text-[var(--ms-success)] font-medium px-2.5 py-1 rounded-md border border-[rgba(107,183,0,0.3)] flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--ms-success)]"></span> <span id="mode-badge-text">Checking mode...</span>
             </span>
         </div>
     </header>
@@ -252,6 +252,29 @@
         const advancedModeInput = document.getElementById('advanced-mode');
         let selectedFile = null;
         let graphNetwork = null;
+
+        // Reads the backend's real MODE (local/cloud) from /health and
+        // renders it read-only - mode is a .env + restart setting, not
+        // something this UI can switch, so this badge only reports state.
+        async function loadModeBadge() {
+            const badge = document.getElementById('mode-badge');
+            const badgeText = document.getElementById('mode-badge-text');
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+
+                if (data.mode === 'cloud') {
+                    badge.className = "bg-[rgba(0,120,212,0.12)] text-[var(--ms-blue-light)] font-medium px-2.5 py-1 rounded-md border border-[rgba(0,120,212,0.3)] flex items-center gap-1.5";
+                    badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-[var(--ms-blue-light)]"></span> <span>Cloud Mode · Azure (${data.chat_model || 'unknown'})</span>`;
+                } else {
+                    badge.className = "bg-[rgba(107,183,0,0.12)] text-[var(--ms-success)] font-medium px-2.5 py-1 rounded-md border border-[rgba(107,183,0,0.3)] flex items-center gap-1.5";
+                    badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-[var(--ms-success)]"></span> <span>Local Mode · Offline Ready</span>`;
+                }
+            } catch (err) {
+                badge.className = "bg-[rgba(197,15,31,0.12)] text-[var(--ms-danger)] font-medium px-2.5 py-1 rounded-md border border-[rgba(197,15,31,0.3)] flex items-center gap-1.5";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-[var(--ms-danger)]"></span> <span>Backend unreachable</span>`;
+            }
+        }
 
         async function loadDocumentList() {
             const list = document.getElementById('knowledge-list');
@@ -513,6 +536,7 @@
         });
 
         loadDocumentList();
+        loadModeBadge();
     </script>
 </body>
 </html>

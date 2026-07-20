@@ -1,4 +1,5 @@
 import time
+from src.config import settings
 from src.llm_client import get_embedding, generate_chat_response
 from src.retrieval.query_rewriter import rewrite_query, decompose_into_subqueries
 from src.retrieval.hybrid import hybrid_retrieve
@@ -8,6 +9,21 @@ from src.retrieval.compression import compress_context_chunks
 from src.telemetry import log_query_event
 
 MAX_HOPS = 2  # initial retrieval pass + at most 1 follow-up hop, never more
+
+
+def _retrieve(query_text: str, query_embedding: list, top_k: int) -> list:
+    """
+    Mode-aware retrieval dispatch. Returns the same result shape
+    (id, chunk_text, source_file, page_number, node_type, heading_path,
+    parent_id, rrf_score) regardless of MODE, so every downstream stage
+    (rerank, grade, compress, parent-expansion, follow-up hop) works
+    unmodified. Azure import is local to this function so local mode
+    never needs the azure-search-documents package installed.
+    """
+    if settings.mode == "cloud":
+        from src.azure_search import azure_hybrid_retrieve
+        return azure_hybrid_retrieve(query_text=query_text, query_embedding=query_embedding, top_k=top_k)
+    return hybrid_retrieve(query_text=query_text, query_embedding=query_embedding, top_k=top_k)
 
 
 def process_chat_query(query: str, advanced_mode: bool = True) -> dict:
@@ -41,7 +57,7 @@ def process_chat_query(query: str, advanced_mode: bool = True) -> dict:
 
     search_width = 8 if advanced_mode else 4
     for q_track in expanded_queries:
-        retrieved = hybrid_retrieve(query_text=q_track, query_embedding=query_embedding, top_k=search_width)
+        retrieved = _retrieve(query_text=q_track, query_embedding=query_embedding, top_k=search_width)
         for chunk in retrieved:
             if chunk["id"] not in seen_chunk_ids:
                 seen_chunk_ids.add(chunk["id"])
@@ -106,7 +122,7 @@ def process_chat_query(query: str, advanced_mode: bool = True) -> dict:
             followup_candidates = []
             for sub_q in subqueries:
                 sub_embedding = get_embedding(sub_q)
-                retrieved = hybrid_retrieve(query_text=sub_q, query_embedding=sub_embedding, top_k=search_width)
+                retrieved = _retrieve(query_text=sub_q, query_embedding=sub_embedding, top_k=search_width)
                 for chunk in retrieved:
                     if chunk["id"] not in seen_chunk_ids:
                         seen_chunk_ids.add(chunk["id"])

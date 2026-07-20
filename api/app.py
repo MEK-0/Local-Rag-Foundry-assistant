@@ -57,7 +57,7 @@ async def health_check():
     return {
         "status": "ok",
         "mode": settings.mode,
-        "chat_model": settings.foundry_chat_model
+        "chat_model": settings.foundry_chat_model if settings.mode == "local" else settings.azure_openai_deployment, 
     }
 
 

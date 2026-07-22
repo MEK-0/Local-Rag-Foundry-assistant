@@ -1,0 +1,54 @@
+[
+  {
+    "id": "q1",
+    "question": "What type of grease is recommended for the spindle of Horizontal SCARA robots, and after how many hours of movement should the customer apply it?",
+    "expected_source_file": "ASDAVS-SP002A_Robot_Periodic_Maintenance_Specification_July_2023.pdf",
+    "expected_keywords": ["grease", "600 hours", "spindle"]
+  },
+  {
+    "id": "q2",
+    "question": "Which FANUC CNC series is this Operation and Maintenance Handbook designed for?",
+    "expected_source_file": "A16B-2200-0900.pdf",
+    "expected_keywords": ["FANUC", "series"]
+  },
+  {
+    "id": "q3",
+    "question": "What happens when the smartPAD is disconnected or removed from the system layout?",
+    "expected_source_file": "KUKA_Sunrise_Cabinet_Med_en.pdf",
+    "expected_keywords": ["smartPAD", "Emergency Stop"]
+  },
+  {
+    "id": "q4",
+    "question": "What safety stop is triggered by fully pressing the enabling switch to the panic position?",
+    "expected_source_file": "KUKA_Sunrise_Cabinet_Med_en.pdf",
+    "expected_keywords": ["Safety Stop 1", "enabling switch"]
+  },
+  {
+    "id": "q5_multipart",
+    "question": "What grease specification applies to Horizontal SCARA robots, and separately, what safety stop is triggered by the enabling switch in panic position?",
+    "expected_source_file": "ASDAVS-SP002A_Robot_Periodic_Maintenance_Specification_July_2023.pdf",
+    "expected_keywords": ["grease", "600 hours", "Safety Stop 1"],
+    "note": "Deliberately combines facts from two different documents (grease spec + KUKA safety stop) to test whether the bounded follow-up hop actually retrieves both, not just the higher-scoring one."
+  },
+  {
+    "id": "q6_lexical_overlap",
+    "question": "What operating modes are supported by the robot controller, and what do T1 and T2 mean?",
+    "expected_source_file": "KUKA_Sunrise_Cabinet_Med_en.pdf",
+    "expected_keywords": ["T1", "T2", "Manual Reduced Velocity", "Manual High Velocity"],
+    "note": "The word 'robot controller' and 'operating modes' appear generically across multiple manuals (KUKA, FANUC) - tests whether reranking correctly picks the KUKA-specific T1/T2 definitions over lexically similar but wrong-document matches."
+  },
+  {
+    "id": "q7_narrow_detail",
+    "question": "What is the workspace, danger zone, and safety zone of a robot, as defined in the safety documentation?",
+    "expected_source_file": "KUKA_Sunrise_Cabinet_Med_en.pdf",
+    "expected_keywords": ["Workspace", "Danger Zone", "Safety Zone", "stopping distance"],
+    "note": "Tests retrieval of three related but distinct definitions from the same section - a case where parent-section reconstruction should help, since the three terms likely span multiple sentences/paragraphs."
+  },
+  {
+    "id": "q8_negative_control",
+    "question": "What is the maximum flight altitude certified for this robot's drone attachment?",
+    "expected_source_file": null,
+    "expected_keywords": [],
+    "note": "No document in this corpus discusses drones or flight altitude. Tests whether the pipeline honestly reports insufficient context instead of fabricating an answer - this is a hallucination check, not a retrieval check."
+  }
+]

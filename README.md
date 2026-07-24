@@ -4,6 +4,8 @@ An offline-first document Q&A assistant that answers questions grounded in
 your own documents (Markdown, PDF, Word, Excel/CSV), running entirely
 on-device with [Microsoft Foundry Local](https://learn.microsoft.com/azure/ai-foundry/foundry-local/).
 
+> 📄 **Technical Report:** [View the full FoundryRAG Technical Report](./docs/EsatkolayRAGproject)
+
 This isn't a naive "embed and cosine-similarity" RAG demo. Documents are
 parsed into a **hierarchical knowledge tree** (headings, tables, figures,
 warnings — not flat text) with an **entity co-occurrence graph** layered on
